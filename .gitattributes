@@ -5,3 +5,4 @@
 *.yaml text eol=lf
 *.toml text eol=lf
 *.png binary
+.team-bootstrap/STEM-SCI-runtime-v1.zip filter=lfs diff=lfs merge=lfs -text
