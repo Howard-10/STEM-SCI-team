@@ -1,0 +1,27 @@
+{
+  "artifact_type": "KnowledgeAssetSummary",
+  "artifact_version": "0.1.0",
+  "corpus_id": "physics_stem_v1",
+  "formal_corpus": {
+    "papers": 122,
+    "vector_chunks": 1788,
+    "graph_triples": 944,
+    "formal_status": "existing_manifest_and_locator_controls_apply"
+  },
+  "structured_assets": {
+    "paper_cards": 122,
+    "paper_cards_status": "model_generated_unverified",
+    "research_method_and_workflow_records": 16,
+    "research_assistant_tasks": 30,
+    "discovery_candidates": 111,
+    "discovery_candidates_with_abstract": 104,
+    "discovery_fulltext_pdfs": 6,
+    "discovery_fulltext_chunks": 469,
+    "discovery_status": "metadata_only"
+  },
+  "non_claims": [
+    "Discovery candidates are not formal evidence.",
+    "Generated PaperCards do not establish human verification.",
+    "Retrieval metrics remain blocked until the Gold Set is frozen."
+  ]
+}

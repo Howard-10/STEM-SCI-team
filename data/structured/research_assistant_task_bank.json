@@ -1,0 +1,668 @@
+{
+  "artifact_type": "ResearchAssistantTaskBank",
+  "artifact_version": "0.1.0",
+  "status": "TEMPLATE_ASSETS",
+  "task_count": 30,
+  "tasks": [
+    {
+      "task_id": "RA-LIT-01",
+      "category": "literature_screening",
+      "name": "根据纳入标准筛选论文",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-LIT-02",
+      "category": "literature_screening",
+      "name": "去重并解析 DOI",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-LIT-03",
+      "category": "literature_screening",
+      "name": "识别研究对象和学段",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-LIT-04",
+      "category": "literature_screening",
+      "name": "提取研究设计",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-LIT-05",
+      "category": "literature_screening",
+      "name": "记录排除理由",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-EVI-01",
+      "category": "evidence_synthesis",
+      "name": "生成单篇 PaperCard",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-EVI-02",
+      "category": "evidence_synthesis",
+      "name": "建立研究问题证据矩阵",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-EVI-03",
+      "category": "evidence_synthesis",
+      "name": "区分支持与矛盾证据",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-EVI-04",
+      "category": "evidence_synthesis",
+      "name": "整理研究空白",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-EVI-05",
+      "category": "evidence_synthesis",
+      "name": "检查主张引用覆盖",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-STU-01",
+      "category": "study_design",
+      "name": "把研究想法拆成研究问题",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-STU-02",
+      "category": "study_design",
+      "name": "定义干预和对照条件",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-STU-03",
+      "category": "study_design",
+      "name": "选择结果变量和量表",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-STU-04",
+      "category": "study_design",
+      "name": "检查样本与功效计划",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-STU-05",
+      "category": "study_design",
+      "name": "生成预注册检查表",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-DAT-01",
+      "category": "data_audit",
+      "name": "建立数据字典",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-DAT-02",
+      "category": "data_audit",
+      "name": "检查缺失和异常值",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-DAT-03",
+      "category": "data_audit",
+      "name": "生成 Raw-Processed-Frozen 链",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-DAT-04",
+      "category": "data_audit",
+      "name": "核对变量与分析计划",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-DAT-05",
+      "category": "data_audit",
+      "name": "生成数据审计报告",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-WRI-01",
+      "category": "writing_review",
+      "name": "根据证据生成段落提纲",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-WRI-02",
+      "category": "writing_review",
+      "name": "检查引用与主张绑定",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-WRI-03",
+      "category": "writing_review",
+      "name": "检查因果措辞",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-WRI-04",
+      "category": "writing_review",
+      "name": "比较中英文数字",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-WRI-05",
+      "category": "writing_review",
+      "name": "生成审稿风险清单",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-REP-01",
+      "category": "reproducibility",
+      "name": "核对代码与冻结数据",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-REP-02",
+      "category": "reproducibility",
+      "name": "复核统计结果卡",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-REP-03",
+      "category": "reproducibility",
+      "name": "生成执行环境摘要",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-REP-04",
+      "category": "reproducibility",
+      "name": "构建主张追溯链",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    },
+    {
+      "task_id": "RA-REP-05",
+      "category": "reproducibility",
+      "name": "生成复现包清单",
+      "assistant_role": "research_assistant",
+      "input_types": [
+        "project_scope",
+        "context_bundle"
+      ],
+      "output_types": [
+        "structured_artifact",
+        "source_refs",
+        "risk_flags"
+      ],
+      "required_checks": [
+        "project_scope",
+        "source_status",
+        "provenance"
+      ],
+      "formal_claim_allowed": false,
+      "demo_ready": true
+    }
+  ]
+}

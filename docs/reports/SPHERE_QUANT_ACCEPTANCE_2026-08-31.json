@@ -1,0 +1,220 @@
+{
+  "project_id": "sphere-quant-791fe3ac35",
+  "researcher": "spherequantcf43b4c26c",
+  "reviewer": "spherequantreviewe522f4c1c7",
+  "route": "OBSERVATIONAL_QUANTITATIVE",
+  "initial_command_kind": "orchestration",
+  "paper": "stem_ways_thinking_2025.pdf",
+  "dataset": "sphere_fci_quantitative.csv",
+  "uploaded_dataset": true,
+  "gate_records": [
+    {
+      "gate_type": "evidence_normalization_approval",
+      "artifact_type": "EvidenceNormalizationCandidate",
+      "artifact_status": "candidate",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "hybrid_retrieval_approval",
+      "artifact_type": "HybridRetrievalCandidate",
+      "artifact_status": "candidate",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "rrf_fusion_approval",
+      "artifact_type": "RrfFusionCandidate",
+      "artifact_status": "candidate",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "cross_encoder_rerank_approval",
+      "artifact_type": "CrossEncoderRerankCandidate",
+      "artifact_status": "candidate",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "evidence_sufficiency_review",
+      "artifact_type": "EvidenceReviewPackage",
+      "artifact_status": "READY",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "research_question_design_approval",
+      "artifact_type": "ResearchQuestionTree",
+      "artifact_status": null,
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "causal_DAG_approval",
+      "artifact_type": "CausalDagCandidate",
+      "artifact_status": "CANDIDATE_REQUIRES_RESEARCHER_APPROVAL",
+      "warnings": [
+        "观察性 DAG 仅用于明确假设，不能自动转化为因果结论。"
+      ],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "power_analysis_approval",
+      "artifact_type": "PowerAnalysisCandidate",
+      "artifact_status": "PLANNING_ASSUMPTIONS_REQUIRE_CONFIRMATION",
+      "warnings": [
+        "功效分析使用预先声明的规划效应量，研究者需确认效应量和目标功效。"
+      ],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "raw_data_import_approval",
+      "artifact_type": "RawDataImportCandidate",
+      "artifact_status": "candidate",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "data_audit_approval",
+      "artifact_type": "DataAuditCandidate",
+      "artifact_status": "WAITING_PROCESSING_APPROVAL",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "data_processing_approval_approval",
+      "artifact_type": "DataProcessingApprovalCandidate",
+      "artifact_status": "WAITING_FREEZE_APPROVAL",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "dataset_freeze_hash_approval",
+      "artifact_type": "DatasetFreezeHashCandidate",
+      "artifact_status": "WAITING_EXECUTION_APPROVAL",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "analysis_code_generation_approval",
+      "artifact_type": "AnalysisCodePlanCandidate",
+      "artifact_status": "WAITING_EXECUTION_APPROVAL",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "physics_code_validation_approval",
+      "artifact_type": "PhysicsCodeValidationCandidate",
+      "artifact_status": "WAITING_EXECUTION_APPROVAL",
+      "warnings": [
+        "代码生成和静态复核将在获得人工执行许可后由确定性执行器完成。"
+      ],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "code_review_approval",
+      "artifact_type": "CodeReviewCandidate",
+      "artifact_status": "WAITING_EXECUTION_APPROVAL",
+      "warnings": [
+        "代码生成和静态复核将在获得人工执行许可后由确定性执行器完成。"
+      ],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "manual_execution_approval_approval",
+      "artifact_type": "ManualExecutionApprovalCandidate",
+      "artifact_status": "WAITING_EXECUTION_APPROVAL",
+      "warnings": [
+        "代码生成和静态复核将在获得人工执行许可后由确定性执行器完成。"
+      ],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "sandbox_analysis_execution_approval",
+      "artifact_type": "SandboxExecutionCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "statistical_result_validation_approval",
+      "artifact_type": "StatisticalResultValidationCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "bootstrap_robustness_approval",
+      "artifact_type": "BootstrapRobustnessCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "permutation_test_approval",
+      "artifact_type": "PermutationTestCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "result_direction_consistency_approval",
+      "artifact_type": "ResultDirectionCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "uncertainty_gate_approval",
+      "artifact_type": "UncertaintyGateCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "statistical_result_card_approval",
+      "artifact_type": "StatisticalResultCardCandidate",
+      "artifact_status": "EXECUTION_VERIFIED",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "writing_approval",
+      "artifact_type": "ManuscriptDraftZh",
+      "artifact_status": "CANDIDATE_RESULTS_DRAFT_REQUIRES_STATISTICAL_REVIEW",
+      "warnings": [],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "manuscript_citation_verification_approval",
+      "artifact_type": "ManuscriptCitationVerification",
+      "artifact_status": "LINKAGE_CHECKED_REQUIRES_HUMAN_VERIFICATION",
+      "warnings": [
+        "内部引用和结果链接已核对；仍需人工核对作者、年份、页码与主张范围。"
+      ],
+      "artifact_present": true
+    },
+    {
+      "gate_type": "reviewer_final_confirmation_approval",
+      "artifact_type": "FinalReviewPacket",
+      "artifact_status": "INDEPENDENT_REVIEW_REQUIRED",
+      "warnings": [
+        "需要独立审稿人完成复核；研究者本人不能将此包标记为独立审稿通过。"
+      ],
+      "artifact_present": true
+    }
+  ],
+  "artifact_count": 27,
+  "claim_count": 4,
+  "final_lifecycle": "COMPLETED",
+  "final_step_index": 30,
+  "quality_assertions": {
+    "observational_route": true,
+    "all_gate_artifacts_present": true,
+    "dataset_uploaded": true,
+    "claims_present": true,
+    "manuscript_present": true,
+    "result_card_present": true
+  }
+}

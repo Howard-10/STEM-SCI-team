@@ -1,0 +1,43 @@
+{
+  "artifact_type": "ResearchAssistantKnowledgeRegistry",
+  "artifact_version": "0.1.0",
+  "purpose": "High-value operational sources for literature review, study design, measurement, analysis, ethics, and reporting.",
+  "source_status": "metadata_only",
+  "formal_use_policy": "Ingest only from the official or publisher landing page; preserve license, PDF hash, page locator, and verification status.",
+  "groups": [
+    {
+      "group_id": "reporting_guidelines",
+      "label": "研究报告与综述规范",
+      "records": [
+        {"id":"RG-001","title":"PRISMA 2020 statement","kind":"systematic_review_guideline","doi":"10.1136/bmj.n71","url":"https://www.bmj.com/content/372/bmj.n71","use":"系统综述报告、流程图、纳排标准"},
+        {"id":"RG-002","title":"CONSORT 2010 statement","kind":"randomized_trial_guideline","doi":"10.1136/bmj.c332","url":"https://www.bmj.com/content/340/bmj.c332","use":"随机或准实验干预报告"},
+        {"id":"RG-003","title":"STROBE statement","kind":"observational_study_guideline","doi":"10.1136/bmj.39335.541782.AD","url":"https://www.bmj.com/content/335/7624/806","use":"观察性研究报告"},
+        {"id":"RG-004","title":"COREQ checklist","kind":"qualitative_interview_guideline","doi":"10.1093/intqhc/mzm042","url":"https://academic.oup.com/intqhc/article/19/6/349/1791966","use":"访谈和焦点小组研究报告"},
+        {"id":"RG-005","title":"SRQR guideline","kind":"qualitative_reporting_guideline","doi":"10.1097/ACM.0000000000000388","url":"https://journals.lww.com/academicmedicine/fulltext/2014/09000/standards_for_reporting_qualitative_research__a.21.aspx","use":"质性研究透明报告"}
+      ]
+    },
+    {
+      "group_id": "measurement_and_data",
+      "label": "测量、数据与开放科学",
+      "records": [
+        {"id":"MD-001","title":"Standards for Educational and Psychological Testing","kind":"assessment_standard","url":"https://www.testingstandards.net/open-access-files.html","use":"教育测量、效度和报告边界"},
+        {"id":"MD-002","title":"FAIR Guiding Principles for scientific data management","kind":"data_management_principle","doi":"10.1038/sdata.2016.18","url":"https://www.nature.com/articles/sdata201618","use":"数据可发现、可访问、可互操作、可复用"},
+        {"id":"MD-003","title":"Open Science Framework Preregistration","kind":"preregistration_resource","url":"https://help.osf.io/article/158-preregistration","use":"预注册和研究方案版本留痕"},
+        {"id":"MD-004","title":"American Educational Research Association Code of Ethics","kind":"research_ethics","url":"https://www.aera.net/About-AERA/AERA-Rules-Policies/Professional-Ethics","use":"教育研究伦理与责任"},
+        {"id":"MD-005","title":"UNESCO AI Competency Framework for Teachers","kind":"teacher_ai_competency_framework","url":"https://www.unesco.org/en/digital-education/ai-future-learning","use":"AI 教师素养、风险和能力维度"}
+      ]
+    },
+    {
+      "group_id": "research_workflow_assets",
+      "label": "助研工作流资料",
+      "records": [
+        {"id":"WA-001","title":"Literature screening decision template","kind":"workflow_template","use":"记录纳入、排除、不确定及理由"},
+        {"id":"WA-002","title":"PaperCard extraction template","kind":"workflow_template","use":"统一抽取研究对象、设计、干预、结果和局限"},
+        {"id":"WA-003","title":"Evidence matrix template","kind":"workflow_template","use":"按研究问题组织支持、矛盾和提及证据"},
+        {"id":"WA-004","title":"Study protocol checklist","kind":"workflow_template","use":"研究问题、变量、样本、分析计划和风险检查"},
+        {"id":"WA-005","title":"Data dictionary and analysis-plan template","kind":"workflow_template","use":"变量定义、缺失值、模型和可复现执行"},
+        {"id":"WA-006","title":"Citation and claim traceability template","kind":"workflow_template","use":"论文主张回溯到证据、结果卡和执行记录"}
+      ]
+    }
+  ]
+}

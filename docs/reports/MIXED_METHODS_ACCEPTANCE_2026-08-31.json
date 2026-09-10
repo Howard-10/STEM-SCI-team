@@ -1,0 +1,77 @@
+{
+  "project_id": "mixed-accept-4fb7bc92ba2c",
+  "researcher": "mixedresearchd58245ba14",
+  "reviewer": "mixedreview6e3cdd92d0",
+  "route": "MIXED_METHODS",
+  "started_kind": "orchestration",
+  "uploaded_routes": [
+    "EXPERIMENTAL",
+    "QUALITATIVE"
+  ],
+  "gate_count": 37,
+  "gates_by_route": {
+    "EXPERIMENTAL": 25,
+    "QUALITATIVE": 12
+  },
+  "artifact_count": 47,
+  "artifact_type_counts": {
+    "PermutationTestCandidate": 1,
+    "PowerAnalysisCandidate": 1,
+    "StatisticalResultCardCandidate": 1,
+    "PreregistrationFreezeCandidate": 1,
+    "EvidenceSufficiencyReport": 2,
+    "StatisticalResultValidationCandidate": 1,
+    "DataAuditCandidate": 2,
+    "ThematicAnalysisCandidate": 1,
+    "BoundedEvidenceSynthesis": 2,
+    "ManuscriptCitationVerification": 2,
+    "ManuscriptDraftZh": 2,
+    "QualitativeValidationCandidate": 1,
+    "PhysicsCodeValidationCandidate": 1,
+    "EvidenceReviewPackage": 2,
+    "DataProcessingApprovalCandidate": 2,
+    "RawDataImportCandidate": 2,
+    "RawQuantitativeDataset": 1,
+    "CodeReviewCandidate": 1,
+    "RawQualitativeDataset": 1,
+    "EvidenceMatrixCandidate": 4,
+    "ManualExecutionApprovalCandidate": 1,
+    "AnalysisCodePlanCandidate": 1,
+    "FinalReviewPacket": 2,
+    "MixedMethodsManuscript": 1,
+    "ResearchQuestionTree": 2,
+    "StudyProtocolCandidate": 2,
+    "CausalDagCandidate": 1,
+    "SandboxExecutionCandidate": 1,
+    "DatasetFreezeHashCandidate": 2,
+    "BootstrapRobustnessCandidate": 1,
+    "ResultDirectionCandidate": 1,
+    "UncertaintyGateCandidate": 1
+  },
+  "claim_count": 21,
+  "merged_claim_count": 12,
+  "merged_manuscript_artifact_id": "artifact-909f836525b045d9935f979246f32505",
+  "final_lifecycle": "COMPLETED",
+  "workstreams": [
+    {
+      "route": "QUALITATIVE",
+      "status": "COMPLETED",
+      "step_index": 18
+    },
+    {
+      "route": "EXPERIMENTAL",
+      "status": "COMPLETED",
+      "step_index": 31
+    }
+  ],
+  "quality_assertions": {
+    "mixed_route": true,
+    "two_workstreams": true,
+    "both_routes_uploaded": true,
+    "completed": true,
+    "claims_present": true,
+    "merged_manuscript_present": true,
+    "merged_components_present": true,
+    "merged_claims_present": true
+  }
+}
