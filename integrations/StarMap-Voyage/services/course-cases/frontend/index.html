@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>星图学航——自适应STEM学习路径规划</title>
+    <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+    <header class="app-header">
+        <h1>星图学航</h1>
+        <p>基于深度推理大模型的自适应STEM学习路径规划系统</p>
+    </header>
+
+    <main class="container">
+        <section id="cases-section" class="card">
+            <h2>选择一个STEM课程案例</h2>
+            <div id="cases-list" class="grid"></div>
+        </section>
+
+        <section id="single-question-section" class="card hidden">
+            <div class="question-header">
+                <h2>题目 <span id="question-counter">1/5</span></h2>
+                <div class="question-navigation">
+                    <button id="prev-question" class="nav-btn">上一题</button>
+                    <button id="next-question" class="nav-btn">下一题</button>
+                </div>
+            </div>
+            <div id="single-question-content"></div>
+            <div class="question-actions">
+                <button id="submit-single-answer" class="primary">提交答案</button>
+                <button id="back-to-cases-from-single" class="ghost">返回案例</button>
+            </div>
+        </section>
+
+        <section id="answer-result-section" class="card hidden">
+            <h2>答题结果</h2>
+            <div id="answer-result-content"></div>
+            <div id="concepts-display" class="concepts-container">
+                <h3>相关知识点</h3>
+                <div id="concepts-list-single" class="chips"></div>
+            </div>
+            <div class="result-actions">
+                <button id="generate-similar" class="secondary">生成类似题目</button>
+                <button id="next-question-after-answer" class="primary">下一题</button>
+                <button id="back-to-question" class="ghost">返回题目</button>
+            </div>
+
+            <!-- 练习完成后的选择 -->
+            <div id="practice-completion" class="practice-completion" style="display: none;">
+                <h3>练习完成！</h3>
+                <div class="completion-actions">
+                    <button id="return-home" class="primary">返回主页</button>
+                    <button id="restart-practice" class="secondary">重新做题</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="questions-section" class="card hidden">
+            <h2>请选择答案</h2>
+            <div id="questions-list"></div>
+            <div class="actions">
+                <button id="submit-answers" class="primary">提交答案</button>
+                <button id="back-to-cases" class="ghost">返回案例</button>
+            </div>
+        </section>
+
+        <section id="evaluate-section" class="card hidden">
+            <h2>判题结果</h2>
+            <div id="evaluate-result"></div>
+            <div class="actions">
+                <button id="extract-concepts" class="primary">提取相关知识点</button>
+                <button id="back-to-questions" class="ghost">返回题目</button>
+            </div>
+        </section>
+
+        <section id="concepts-section" class="card hidden">
+            <h2>相关知识点</h2>
+            <div id="concepts-list" class="chips"></div>
+            <p class="hint">点击下方任一知识点，查看基于知识图谱的前后驱学习路径推荐</p>
+        </section>
+
+        <section id="concept-detail-section" class="card hidden">
+            <div class="concept-header">
+                <h2 id="concept-title">知识点详情</h2>
+                <button id="back-to-concepts" class="ghost">返回知识点列表</button>
+            </div>
+            <div id="concept-explanation" class="concept-content"></div>
+            <div class="concept-actions">
+                <button id="view-learning-path" class="primary">查看学习路径</button>
+            </div>
+        </section>
+
+        <section id="path-section" class="card hidden">
+            <div class="path-header">
+                <h2>学习路径推荐</h2>
+                <button id="back-to-concept-detail" class="ghost">返回知识点详情</button>
+            </div>
+            <div class="paths">
+                <div class="prerequisites">
+                    <h3>前驱路径（先修）</h3>
+                    <div id="pre-paths"></div>
+                </div>
+                <div class="postrequisites">
+                    <h3>后继路径（进阶）</h3>
+                    <div id="post-paths"></div>
+                </div>
+            </div>
+            <div class="path-actions">
+                <button id="back-to-concepts-from-path" class="ghost">返回知识点列表</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <span>© 星图学航</span>
+    </footer>
+
+    <script src="./app.js"></script>
+</body>
+
+</html>

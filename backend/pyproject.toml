@@ -62,6 +62,16 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["stem_sci*"]
 
+[tool.setuptools.package-data]
+stem_sci = [
+  "skills/journal_writing/*.md",
+  "skills/journal_writing/profiles/*.yaml",
+  "skills/journal_writing/patterns/*.yaml",
+  "skills/journal_writing/assets/springer_nature/*.tex",
+  "skills/journal_writing/assets/springer_nature/*.cls",
+  "skills/journal_writing/assets/springer_nature/bst/*.bst",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

@@ -311,6 +311,35 @@ def test_evidence_review_counts_verified_nested_locations_and_blocks_unverified_
     assert any("已核验来源" in item for item in unverified_only["coverage"]["missing_requirements"])
 
 
+def test_legacy_evidence_projection_reuses_project_context_without_formalizing_it(tmp_path: Path, monkeypatch) -> None:
+    context_service = ContextService(tmp_path / "context")
+    context_service.import_bytes(
+        "legacy-evidence-project",
+        "circuit-study.txt",
+        b"STEM circuit experiments may affect students' circuit conceptual structure. Verify the source text manually.",
+    )
+    monkeypatch.setattr(api, "service", context_service)
+
+    bundle = api._legacy_project_evidence_context(
+        "legacy-evidence-project",
+        "电路实验",
+    )
+    package = api._build_evidence_review_package(
+        "legacy-evidence-project",
+        "电路实验",
+        [],
+        context_bundle=bundle,
+    )
+
+    assert package["coverage"]["source_count"] == 1
+    assert package["coverage"]["evidence_count"] >= 1
+    assert package["coverage"]["formal_evidence_ready"] is False
+    assert all(
+        item["verification_status"] == "model_generated_unverified"
+        for item in package["evidence_snapshots"]
+    )
+
+
 def test_runtime_separates_detected_codex_cli_from_confirmed_generation(monkeypatch) -> None:
     class DetectedCodex:
         def health_reason(self) -> None:

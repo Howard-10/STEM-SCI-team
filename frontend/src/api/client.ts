@@ -16,6 +16,13 @@ import { demoBundle, demoCorpus, demoDiscoveryAssets, demoKnowledgeAssetSummary,
 const base = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
 
+export type BackendHealth = {
+  status: string;
+  service: string;
+  configuration_valid?: boolean;
+  warnings?: string[];
+};
+
 function query(values: Record<string, string>): string {
   return new URLSearchParams(values).toString();
 }
@@ -35,6 +42,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function demoFallback<T>(path: string, init?: RequestInit): T {
+  if (path === "/health") {
+    return {
+      status: "ok",
+      service: "stem-sci-demo",
+      configuration_valid: true,
+      warnings: [],
+    } as T;
+  }
   if (path === "/corpora") return [demoCorpus] as T;
   if (path === "/knowledge-assets/summary") return demoKnowledgeAssetSummary as T;
   if (path === "/knowledge-assets/discovery") return demoDiscoveryAssets as T;
@@ -52,6 +67,7 @@ function demoFallback<T>(path: string, init?: RequestInit): T {
 }
 
 export const api = {
+  getHealth: () => request<BackendHealth>("/health"),
   listSources: (projectId: string) => request<Source[]>(`/sources?${query({ project_id: projectId })}`),
   getSource: (projectId: string, sourceId: string) =>
     request<Source>(`/sources/${sourceId}?${query({ project_id: projectId })}`),

@@ -24,6 +24,51 @@ def test_clear_start_and_retrieval_command_enters_workflow() -> None:
     )
 
 
+def test_natural_design_and_evidence_commands_enter_workflow() -> None:
+    state = SimpleNamespace(route_decision=None)
+
+    assert api._auto_requests_workflow("请确定研究问题与方案。", state)
+    assert api._auto_requests_workflow("请找证据，列出原文证据和候选证据。", state)
+
+
+def test_design_or_evidence_discussion_stays_in_qa() -> None:
+    state = SimpleNamespace(route_decision=None)
+
+    assert not api._auto_requests_workflow("先讨论研究问题与方案，不要开始生成。", state)
+    assert not api._auto_requests_workflow("先讨论证据范围，不要找证据。", state)
+
+
+def test_legacy_qa_turns_are_projected_as_provisional_workbench_cards(monkeypatch) -> None:
+    class FakeQA:
+        def list_conversations(self, project_id: str, *, limit: int):
+            return [SimpleNamespace(conversation_id="conversation-1")]
+
+        def conversation_turns(self, project_id: str, conversation_id: str, *, limit: int):
+            return [
+                SimpleNamespace(
+                    model_dump=lambda mode: {
+                        "question": "请确定研究对象、场景、方法、发现与边界",
+                        "answer": "这是历史问答中的候选内容。",
+                        "created_at": "2026-09-10T00:00:00+00:00",
+                    }
+                )
+            ]
+
+    monkeypatch.setattr(api, "qa_service", FakeQA())
+    monkeypatch.setattr(api.artifact_content_store, "list_project", lambda project_id: [])
+
+    projected = api._legacy_workflow_artifacts("legacy-project")
+
+    assert {item.artifact_type for item in projected} == {
+        "ResearchQuestionTree",
+        "StudyProtocolCandidate",
+    }
+    assert all(
+        item.body["status"] == "LEGACY_CANDIDATE_REQUIRES_CONFIRMATION"
+        for item in projected
+    )
+
+
 def test_declined_retrieval_remains_discussion() -> None:
     state = SimpleNamespace(route_decision=None)
 

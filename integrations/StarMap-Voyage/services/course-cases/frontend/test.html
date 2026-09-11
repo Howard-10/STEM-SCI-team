@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>测试页面 - 星图学航</title>
+    <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+    <header class="app-header">
+        <h1>星图学航 - 测试页面</h1>
+        <p>功能测试和验证</p>
+    </header>
+
+    <main class="container">
+        <section class="card">
+            <h2>功能测试</h2>
+            <div>
+                <h3>已实现的功能：</h3>
+                <ul>
+                    <li>✅ 推荐学习路径上的知识点点击后提供解析</li>
+                    <li>✅ 看完解析后能返回推荐路径</li>
+                    <li>✅ 生成题目的选项格式修复（ABCD而不是0123）</li>
+                    <li>✅ 生成题目的答案解析与题目内容相关</li>
+                    <li>✅ 修复生成题目导航问题</li>
+                    <li>✅ 动态知识图谱支持</li>
+                    <li>✅ 记住用户做过的题目选项</li>
+                    <li>✅ 正确区分前驱和后继路径</li>
+                    <li>✅ 修复简答题记忆功能</li>
+                    <li>✅ 添加"敬请期待"模块</li>
+                    <li>✅ 返回案例时清空答题历史</li>
+                    <li>✅ 星星背景（缓慢闪烁+随机移动）</li>
+                    <li>✅ 加载动画支持</li>
+                    <li>✅ 完整展示推荐路径</li>
+                    <li>✅ 生成类似题目功能移至答题完成后</li>
+                    <li>✅ 从左到右闪烁的加载文字效果</li>
+                    <li>✅ 推荐路径知识点先后顺序可视化</li>
+                    <li>✅ 提前结束练习功能</li>
+                    <li>✅ 练习完成后选择重新做题或返回主页</li>
+                    <li>✅ 智能生成新题目并打乱顺序</li>
+                    <li>✅ 严格参照知识图谱内容</li>
+                </ul>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <h3>最新修改内容：</h3>
+                <ul>
+                    <li>⭐ 星星背景添加缓慢闪烁和随机移动效果</li>
+                    <li>🔍 推荐路径上的知识点点击后提供智能体生成的解析</li>
+                    <li>🎯 智能生成题目后直接跳转，不显示提示</li>
+                    <li>🛤️ 推荐路径知识点先后顺序可视化更明显</li>
+                    <li>⏹️ 最后一题提供提前结束练习按钮</li>
+                    <li>⚠️ 空题检查，确认是否结束练习</li>
+                    <li>🔄 练习完成后可选择重新做题（智能生成新题目并打乱顺序）</li>
+                    <li>🏠 练习完成后可选择返回主页</li>
+                    <li>📊 严格参照知识图谱all_graph_data.json内容</li>
+                    <li>🎨 前驱路径（绿色）和后继路径（黄色）颜色区分</li>
+                </ul>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <h3>测试说明：</h3>
+                <p>1. 启动后端服务：<code>py -m uvicorn api_server:app --host 127.0.0.1 --port 8000 --reload</code></p>
+                <p>2. 打开主页面：<a href="index.html">index.html</a></p>
+                <p>3. 测试各项功能是否正常工作</p>
+                <p>4. 特别注意新修改的功能：</p>
+                <ul>
+                    <li>星星背景的缓慢闪烁和随机移动效果</li>
+                    <li>推荐路径知识点的点击解析功能</li>
+                    <li>推荐路径的可视化效果（序号、连接线、颜色区分）</li>
+                    <li>提前结束练习和空题检查功能</li>
+                    <li>练习完成后的选择功能</li>
+                    <li>重新做题的智能生成和打乱顺序</li>
+                    <li>知识图谱内容的严格参照</li>
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <span>© 星图学航</span>
+    </footer>
+</body>
+
+</html>

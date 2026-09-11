@@ -21,15 +21,17 @@ export function AppShell() {
       if (!detail?.projectId || !detail.content) return;
       setManuscriptContext(detail);
     };
+    const handleOpenLatex = () => setOpen(true);
     window.addEventListener("stem-sci:manuscript-context", handleManuscriptContext);
-    return () => window.removeEventListener("stem-sci:manuscript-context", handleManuscriptContext);
+    window.addEventListener("stem-sci:open-latex", handleOpenLatex);
+    return () => {
+      window.removeEventListener("stem-sci:manuscript-context", handleManuscriptContext);
+      window.removeEventListener("stem-sci:open-latex", handleOpenLatex);
+    };
   }, []);
 
   return <>
     <App />
-    <button className="latex-launch-button" type="button" onClick={() => setOpen(true)}>
-      {manuscriptContext ? "用当前论文投稿格式化" : "投稿格式化 / LaTeX"}
-    </button>
     {open && <div className="latex-modal" role="dialog" aria-modal="true" aria-label="投稿格式化">
       <button className="latex-close-button" type="button" onClick={() => setOpen(false)}>关闭</button>
       <LatexFormatterPage

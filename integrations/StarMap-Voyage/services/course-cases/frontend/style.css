@@ -1,0 +1,1213 @@
+/* 基础样式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* 星星背景 */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image:
+        radial-gradient(2px 2px at 20px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 90px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 130px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 160px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 200px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 250px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 290px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 320px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 360px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 410px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 450px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 480px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 520px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 570px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 610px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 640px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 680px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 730px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 770px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 800px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 840px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 890px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 930px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 960px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 1000px 70px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 1050px 40px, #fff, transparent),
+        radial-gradient(1px 1px at 1090px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 1120px 30px, #fff, transparent),
+        radial-gradient(2px 2px at 1160px 70px, rgba(255, 255, 255, 0.8), transparent);
+    background-repeat: repeat;
+    background-size: 1200px 100px;
+    animation: twinkle 60s linear infinite, float 120s ease-in-out infinite;
+    z-index: -1;
+}
+
+@keyframes twinkle {
+    0% {
+        opacity: 0.3;
+    }
+
+    25% {
+        opacity: 0.6;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+
+    75% {
+        opacity: 0.5;
+    }
+
+    100% {
+        opacity: 0.3;
+    }
+}
+
+@keyframes float {
+    0% {
+        transform: translate(0, 0) rotate(0deg);
+    }
+
+    25% {
+        transform: translate(10px, -5px) rotate(1deg);
+    }
+
+    50% {
+        transform: translate(-5px, 10px) rotate(-1deg);
+    }
+
+    75% {
+        transform: translate(-10px, -3px) rotate(0.5deg);
+    }
+
+    100% {
+        transform: translate(0, 0) rotate(0deg);
+    }
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* 头部样式 */
+.app-header {
+    text-align: center;
+    color: white;
+    padding: 40px 20px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    margin-bottom: 30px;
+}
+
+.app-header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+
+.app-header p {
+    font-size: 1.1rem;
+    opacity: 0.9;
+}
+
+/* 卡片样式 */
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.card h2 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+/* 案例网格 */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.case-item {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.case-item:hover {
+    border-color: #667eea;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+}
+
+.case-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.case-desc {
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+/* 题目样式 */
+.question {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-left: 4px solid #667eea;
+}
+
+.question>div:first-child {
+    font-weight: 600;
+    margin-bottom: 15px;
+    color: #2c3e50;
+}
+
+/* 题目类型标识 */
+.question-type {
+    background: #667eea;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    display: inline-block;
+    margin-bottom: 15px;
+}
+
+/* 选项样式 */
+.options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.option {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.option:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+}
+
+.option input[type="radio"] {
+    margin-right: 10px;
+    transform: scale(1.2);
+}
+
+/* 填空题样式 */
+.fill-options {
+    margin-top: 15px;
+}
+
+.fill-input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+}
+
+.fill-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* 简答题样式 */
+.short-answer-options {
+    margin-top: 15px;
+}
+
+.short-answer-input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+    resize: vertical;
+    transition: all 0.2s ease;
+}
+
+.short-answer-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* 生成的题目列表样式 */
+.generated-questions-list {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.generated-questions-list h3 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    font-size: 1.3rem;
+}
+
+.generated-question {
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    transition: all 0.2s ease;
+}
+
+.generated-question:hover {
+    border-color: #667eea;
+    transform: translateY(-1px);
+}
+
+.generated-question .question-type {
+    margin-bottom: 10px;
+}
+
+.generated-question .question-text {
+    font-weight: 500;
+    color: #2c3e50;
+    margin-bottom: 15px;
+}
+
+/* 单题显示样式 */
+.question-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.question-navigation {
+    display: flex;
+    gap: 10px;
+}
+
+.nav-btn {
+    padding: 8px 16px;
+    border: 2px solid #667eea;
+    background: white;
+    color: #667eea;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.nav-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+.nav-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#question-counter {
+    color: #667eea;
+    font-weight: 600;
+}
+
+/* 答题结果样式 */
+.answer-result {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.result-correct {
+    border-left: 4px solid #28a745;
+    background: #d4edda;
+}
+
+.result-incorrect {
+    border-left: 4px solid #dc3545;
+    background: #f8d7da;
+}
+
+.result-status {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.result-status.correct {
+    color: #28a745;
+}
+
+.result-status.incorrect {
+    color: #dc3545;
+}
+
+.correct-answer {
+    background: #e8f5e8;
+    padding: 15px;
+    border-radius: 6px;
+    margin: 15px 0;
+    border-left: 3px solid #28a745;
+    color: #155724;
+}
+
+.explanation {
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    margin: 15px 0;
+    border-left: 3px solid #17a2b8;
+}
+
+/* 知识点样式 */
+.concepts-container {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 2px solid #e9ecef;
+}
+
+.concepts-container h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.chip {
+    background: #667eea;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.chip:hover {
+    background: #5a6fd8;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* 知识点详情样式 */
+.concept-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.concept-content {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    line-height: 1.8;
+    color: #2c3e50;
+    margin-bottom: 20px;
+}
+
+/* 学习路径样式 */
+.path-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 20px;
+}
+
+.paths>div {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.paths h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.paths ul {
+    list-style: none;
+    padding: 0;
+}
+
+.paths li {
+    padding: 10px;
+    margin-bottom: 8px;
+    background: white;
+    border-radius: 6px;
+    border-left: 3px solid #667eea;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.paths li:hover {
+    background: #f8f9ff;
+    transform: translateX(3px);
+}
+
+.path-concept {
+    color: #667eea;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.path-concept:hover {
+    color: #5a6fd8;
+    text-decoration: underline;
+}
+
+/* 路径顺序指示器 */
+.paths li::before {
+    content: counter(path-counter);
+    counter-increment: path-counter;
+    position: absolute;
+    left: -15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #667eea;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+    z-index: 1;
+}
+
+.paths ul {
+    counter-reset: path-counter;
+}
+
+/* 路径连接线 */
+.paths li:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -8px;
+    width: 2px;
+    height: 8px;
+    background: #667eea;
+    transform: translateX(-50%);
+}
+
+/* 前驱路径特殊样式 */
+.paths .prerequisites li {
+    border-left-color: #28a745;
+}
+
+.paths .prerequisites li::before {
+    background: #28a745;
+}
+
+.paths .prerequisites li::after {
+    background: #28a745;
+}
+
+.paths .prerequisites .path-concept {
+    color: #28a745;
+}
+
+/* 后继路径特殊样式 */
+.paths .postrequisites li {
+    border-left-color: #ffc107;
+}
+
+.paths .postrequisites li::before {
+    background: #ffc107;
+}
+
+.paths .postrequisites li::after {
+    background: #ffc107;
+}
+
+.paths .postrequisites .path-concept {
+    color: #ffc107;
+}
+
+/* 按钮样式 */
+.path-line {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.path-node {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 10px 14px;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+    color: #2c3e50;
+    font-weight: 500;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+    position: relative;
+}
+
+.path-node:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(102, 126, 234, 0.18);
+    border-color: #d6d9e0;
+}
+
+.path-node:active {
+    transform: translateY(0);
+}
+
+.path-node:focus {
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.18);
+}
+
+/* 左侧色点标识（按前驱/后继区分颜色） */
+.path-node::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 10px;
+    background: #667eea; /* 默认颜色 */
+}
+
+.prerequisites .path-node::before {
+    background: #28a745;
+}
+
+.postrequisites .path-node::before {
+    background: #ffc107;
+}
+
+.path-arrow {
+    color: #9aa1ab;
+    margin: 4px 0 4px 12px;
+    user-select: none;
+}
+
+.actions,
+.question-actions,
+.result-actions,
+.concept-actions,
+.path-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.primary {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.primary:hover {
+    background: #5a6fd8;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+
+.secondary {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.secondary:hover {
+    background: #5a6268;
+    transform: translateY(-1px);
+}
+
+.ghost {
+    background: transparent;
+    color: #667eea;
+    border: 2px solid #667eea;
+    padding: 10px 22px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.ghost:hover {
+    background: #667eea;
+    color: white;
+}
+
+/* 工具类 */
+.hidden {
+    display: none !important;
+}
+
+.hint {
+    color: #6c757d;
+    font-size: 0.9rem;
+    font-style: italic;
+    margin-top: 15px;
+}
+
+/* 页脚样式 */
+.app-footer {
+    text-align: center;
+    color: white;
+    padding: 20px;
+    margin-top: 40px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+
+    .card {
+        padding: 20px;
+    }
+
+    .app-header h1 {
+        font-size: 2rem;
+    }
+
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .paths {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .actions,
+    .question-actions,
+    .result-actions,
+    .concept-actions,
+    .path-actions {
+        flex-direction: column;
+    }
+
+    .question-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+
+    .concept-header,
+    .path-header {
+        flex-direction: column;
+        gap: 15px;
+        align-items: flex-start;
+    }
+}
+
+/* 新增样式 */
+.no-concepts {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px dashed #dee2e6;
+}
+
+.generated-questions-list {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.generated-questions-list h3 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    font-size: 1.3rem;
+}
+
+.generated-question {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+}
+
+.generated-question .question-type {
+    color: #667eea;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.generated-question .question-text {
+    margin-bottom: 15px;
+    line-height: 1.5;
+}
+
+.path-concept {
+    color: #667eea;
+    cursor: pointer;
+    text-decoration: underline;
+    transition: color 0.3s ease;
+}
+
+.path-concept:hover {
+    color: #5a6fd8;
+}
+
+/* 知识点详情页面的返回按钮样式 */
+.concept-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.concept-content {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+
+/* 答题历史恢复的样式 */
+.option input[type="radio"]:checked+span,
+.option input[type="radio"]:checked {
+    background-color: #667eea;
+    color: white;
+}
+
+.fill-input:focus,
+.short-answer-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+/* 加载动画样式 */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 1s ease-in-out infinite;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-text {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: #667eea;
+    font-weight: 500;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.loading-modal {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.loading-modal .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border-width: 4px;
+    margin: 0 auto 20px;
+}
+
+/* 从左到右闪烁的加载文字效果 */
+.loading-text-shimmer {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer-text 2s ease-in-out infinite;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+@keyframes shimmer-text {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+/* 敬请期待模块样式 */
+.coming-soon {
+    opacity: 0.7;
+    position: relative;
+    overflow: hidden;
+}
+
+.coming-soon::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        left: -100%;
+    }
+
+    100% {
+        left: 100%;
+    }
+}
+
+.coming-soon-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #ff6b6b;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* 练习完成相关样式 */
+.practice-completion {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 20px;
+    text-align: center;
+    border: 2px solid #28a745;
+}
+
+.practice-completion h3 {
+    color: #28a745;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.completion-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.completion-actions button {
+    min-width: 120px;
+}
+
+/* 完成练习按钮特殊样式 */
+.finish-practice-btn {
+    background: linear-gradient(135deg, #ff6b6b, #ee5a24) !important;
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+.finish-practice-btn:hover {
+    background: linear-gradient(135deg, #ee5a24, #d63031) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4) !important;
+}
+
+/* 学习路径可视化改进 */
+.paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin: 1.5rem 0;
+}
+
+.paths>div {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid #e9ecef;
+    position: relative;
+}
+
+.paths h3 {
+    margin: 0 0 1.5rem 0;
+    color: #495057;
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #dee2e6;
+}
+
+/* 基础学科网格布局 */
+.paths .basic-subjects {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.paths .basic-subjects .path-concept {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    padding: 0.75rem;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    transition: all 0.3s ease;
+}
+
+.paths .basic-subjects .path-concept:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* 具体知识点路径 */
+.paths .specific-path {
+    position: relative;
+}
+
+.paths .specific-path li {
+    position: relative;
+    padding: 1rem 1rem 1rem 3rem;
+    margin-bottom: 0.5rem;
+    background: white;
+    border-radius: 8px;
+    border-left: 4px solid #667eea;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.paths .specific-path li:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 路径顺序指示器 */
+.paths .specific-path li::before {
+    content: counter(path-counter);
+    counter-increment: path-counter;
+    position: absolute;
+    left: -15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #667eea;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    z-index: 2;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.paths .specific-path ul {
+    counter-reset: path-counter;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* 路径连接线 */
+.paths .specific-path li:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -8px;
+    width: 3px;
+    height: 12px;
+    background: linear-gradient(to bottom, #667eea, #764ba2);
+    transform: translateX(-50%);
+    border-radius: 2px;
+}
+
+/* 前驱路径特殊样式 */
+.paths .prerequisites .specific-path li {
+    border-left-color: #28a745;
+}
+
+.paths .prerequisites .specific-path li::before {
+    background: linear-gradient(135deg, #28a745, #20c997);
+}
+
+.paths .prerequisites .specific-path li::after {
+    background: linear-gradient(to bottom, #28a745, #20c997);
+}
+
+.paths .prerequisites .path-concept {
+    color: #28a745;
+    font-weight: 600;
+}
+
+/* 后继路径特殊样式 */
+.paths .postrequisites .specific-path li {
+    border-left-color: #ffc107;
+}
+
+.paths .postrequisites .specific-path li::before {
+    background: linear-gradient(135deg, #ffc107, #fd7e14);
+}
+
+.paths .postrequisites .specific-path li::after {
+    background: linear-gradient(to bottom, #ffc107, #fd7e14);
+}
+
+.paths .postrequisites .path-concept {
+    color: #fd7e14;
+    font-weight: 600;
+}
+
+/* 知识点点击样式 */
+.path-concept {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.25rem 0;
+    display: inline-block;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+    text-decoration: none;
+}
+
+.path-concept:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 空路径提示样式 */
+.paths .empty-path {
+    text-align: center;
+    padding: 2rem;
+    color: #6c757d;
+    font-style: italic;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 2px dashed #dee2e6;
+}
+
+.paths .empty-path::before {
+    content: "📚";
+    font-size: 2rem;
+    display: block;
+    margin-bottom: 0.5rem;
+}

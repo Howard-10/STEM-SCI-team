@@ -8,6 +8,17 @@ Current status: the Phase 1 six-Agent workflow framework is implemented. It incl
 
 The Context MVP accepts Markdown, TXT, JSON, and text-extractable PDF files under a required `project_id`. Its default upload limit is 50 MB and can be changed with `STEM_SCI_MAX_UPLOAD_BYTES`. Scanned or image-only PDFs require a later OCR capability and are rejected clearly in this MVP. Its default CORS allowlist is limited to `http://localhost:5173` and `http://127.0.0.1:5173`; configure `STEM_SCI_CORS_ORIGINS` as a comma-separated allowlist for another local frontend origin. Do not use a wildcard CORS origin. Copy the root `.env.example` for the available local settings.
 
+## Unified research and teaching entry
+
+The merged workspace keeps the two products isolated:
+
+- `backend/` + `frontend/`: 助研, using the STEM-SCI research API on port `8013` and frontend on port `5177`.
+- `integrations/StarMap-Voyage/`: 助学, using its own teaching services on ports `8002`, `8800`, `8000`, and `8501`, with its frontend on port `5178`.
+
+Start the complete local environment with `start-merged.bat`, then open `http://127.0.0.1:5177`. After login, the unified route at `/workspace/select` lets the user choose 助研 or 助学. 助学 is rendered from the independent StarMap frontend and can be opened in a separate browser window from the workspace toolbar.
+
+助学服务的本地密钥配置位于 `integrations/StarMap-Voyage/.env`，该文件已被 Git 忽略；启动脚本会自动加载其中的 `SILICONFLOW_API_KEY`。
+
 ## Physics-STEM retrieval status
 
 The repository now also contains a bounded, read-only shared-corpus retrieval layer. Its local assets cover 122 Physics-STEM papers, 1,788 paragraph-level text chunks, and a 944-triple paper-level sparse relation graph. The graph only navigates toward candidate papers; paragraph retrievers locate original-text candidates; graph scores do not affect text RRF scores. Every graph triple remains `model_generated_unverified` and cannot be cited as a formal research fact.

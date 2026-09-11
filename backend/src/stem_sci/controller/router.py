@@ -2340,6 +2340,77 @@ class ResearchController:
         """Return one record per evidence ID with preserved round provenance."""
         return self.formal_evidence_store.list_project(project_id)
 
+    def promote_verified_evidence(
+        self,
+        project_id: str,
+        evidence_id: str,
+        evidence_ref: Mapping[str, object],
+        *,
+        promoted_by: str,
+    ) -> FormalEvidenceRecord:
+        """Admit one human-verified source snapshot into the formal ledger.
+
+        Manual evidence review is intentionally separate from Agent output
+        promotion. This path is used when a researcher verifies a source
+        directly inside the evidence workbench.
+        """
+
+        verification_status = str(evidence_ref.get("verification_status") or "").lower()
+        if verification_status not in {"source_verified", "human_verified"}:
+            raise ValueError("FORMAL_EVIDENCE_REQUIRES_SOURCE_VERIFICATION")
+        location = evidence_ref.get("location")
+        if not isinstance(location, Mapping):
+            raise ValueError("FORMAL_EVIDENCE_MISSING_SOURCE_LOCATION")
+        chunk_index = location.get("chunk_index")
+        char_start = location.get("char_start")
+        char_end = location.get("char_end")
+        if not isinstance(chunk_index, int):
+            raise ValueError("FORMAL_EVIDENCE_MISSING_CHUNK_LOCATION")
+        if not isinstance(char_start, int) or not isinstance(char_end, int) or char_end <= char_start:
+            raise ValueError("FORMAL_EVIDENCE_MISSING_CHARACTER_LOCATION")
+        if evidence_ref.get("project_id") != project_id:
+            raise ValueError("FORMAL_EVIDENCE_PROJECT_MISMATCH")
+
+        now = datetime.now(UTC)
+        artifact_id = f"manual-evidence-review:{evidence_id}"
+        record = FormalEvidenceRecord(
+            project_id=project_id,
+            evidence_id=evidence_id,
+            artifact_id=artifact_id,
+            plan_id="manual-evidence-review",
+            task_id="manual-source-verification",
+            agent_id="human_reviewer",
+            promoted_by=promoted_by,
+            promoted_at=now,
+            evidence_ref=dict(evidence_ref),
+            provenance=[{
+                "artifact_id": artifact_id,
+                "plan_id": "manual-evidence-review",
+                "task_id": "manual-source-verification",
+                "promoted_by": promoted_by,
+                "promoted_at": now.isoformat(),
+            }],
+        )
+        self.formal_evidence_store.put(record)
+        with self._state_lock:
+            workflow_state = self._workflow_states.get(project_id)
+            current = self._states.get(project_id)
+            if current is None and workflow_state is not None:
+                current = workflow_state.research_state
+            if current is not None:
+                updated = merge_references(
+                    current,
+                    evidence_refs=[evidence_id],
+                    progress_ledger=[f"manual formal evidence promoted: {evidence_id}"],
+                )
+                self._states[project_id] = updated
+                if workflow_state is not None:
+                    self._workflow_states[project_id] = workflow_state.model_copy(
+                        update={"research_state": updated}
+                    )
+                self._persist(project_id)
+        return record
+
     def _agent_task_for_artifact(
         self, project_id: str, artifact_id: str
     ) -> tuple[AgentExecutionPlan, AgentTaskPlan] | None:

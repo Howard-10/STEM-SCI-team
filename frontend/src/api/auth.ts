@@ -201,6 +201,15 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
   const effectiveToken = stored?.access_token ?? token;
   let response = await send<T>(path, init, effectiveToken);
 
+  // A second tab can clear localStorage after its token expires while this
+  // tab still has the old React auth state. Turn that silent 401 into the
+  // same predictable session-expired transition used by refresh failures.
+  if (response.status === 401 && !effectiveToken) {
+    clearAuth();
+    window.dispatchEvent(new Event("stem-sci-auth-expired"));
+    throw new ApiRequestError("登录已过期，请重新登录", 401, "session_expired");
+  }
+
   if (response.status === 401 && effectiveToken && stored?.refresh_token) {
     const refreshResponse = await send<AuthState>("/auth/refresh", {
       method: "POST",

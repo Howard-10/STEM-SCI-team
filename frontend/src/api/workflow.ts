@@ -488,6 +488,37 @@ export interface ProjectClaim {
   reviewer_status: string;
 }
 
+export interface ReproducibilityReviewResult {
+  workflow_state: ControllerWorkflowState;
+  outcome: {
+    findings: Array<{
+      finding_id: string;
+      severity: string;
+      category: string;
+      description: string;
+      suggested_action: string;
+      evidence_refs: string[];
+    }>;
+    revision_requests: Array<{
+      revision_id: string;
+      required_changes: string[];
+      blocking: boolean;
+    }>;
+    report: {
+      review_report_id: string;
+      overall_recommendation: string;
+      finding_refs: string[];
+      revision_request_refs: string[];
+    };
+  };
+  approval_request: {
+    request_id: string;
+    approval_type: string;
+    reason: string;
+    risk_summary: string;
+  } | null;
+}
+
 export interface EvidenceReviewPackage {
   project_id: string;
   artifact_id: string;
@@ -1219,6 +1250,12 @@ export const workflowApi = {
       `/projects/${encodeURIComponent(projectId)}/workflow/formal-evidence`,
     );
   },
+  promoteVerifiedEvidence(projectId: string, evidenceId: string) {
+    return request<FormalEvidenceRecord>(
+      `/projects/${encodeURIComponent(projectId)}/workflow/evidence/${encodeURIComponent(evidenceId)}/promote`,
+      { method: "POST" },
+    );
+  },
   decideAgentOutput(
     projectId: string,
     artifactId: string,
@@ -1231,6 +1268,29 @@ export const workflowApi = {
       {
         method: "POST",
         body: JSON.stringify({ decision, decided_by: decidedBy, target }),
+      },
+    );
+  },
+  saveCodeArtifactVersion(
+    projectId: string,
+    artifactId: string,
+    sourceCode: string,
+    changeNote?: string,
+  ) {
+    return request<{
+      artifact: Record<string, unknown>;
+      content: {
+        artifact_id: string;
+        artifact_type: string;
+        version: number;
+        body: Record<string, unknown>;
+      };
+      change_note: string;
+    }>(
+      `/projects/${encodeURIComponent(projectId)}/workflow/artifacts/${encodeURIComponent(artifactId)}/code-version`,
+      {
+        method: "POST",
+        body: JSON.stringify({ source_code: sourceCode, change_note: changeNote }),
       },
     );
   },
@@ -1431,6 +1491,32 @@ export const workflowApi = {
     return request<DataPipelineState>(`/projects/${encodeURIComponent(projectId)}/workflow/data-pipeline/decide`, {
       method: "POST", body: JSON.stringify({ decision, decided_by: decidedBy }),
     });
+  },
+  runReproducibilityReview(
+    projectId: string,
+    input: {
+      manuscriptRef: string;
+      numericClaims: Array<{
+        claim_ref: string;
+        result_card_ref: string;
+        result_key: string;
+        reported_value: number;
+      }>;
+      tolerance?: number;
+    },
+  ) {
+    return request<ReproducibilityReviewResult>(
+      `/workflow/projects/${encodeURIComponent(projectId)}/reviews/reproducibility`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: projectId,
+          manuscript_ref: input.manuscriptRef,
+          numeric_claims: input.numericClaims,
+          tolerance: input.tolerance ?? 1e-9,
+        }),
+      },
+    );
   },
 };
 import {

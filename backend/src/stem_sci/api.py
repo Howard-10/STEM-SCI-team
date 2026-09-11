@@ -73,6 +73,7 @@ from .context.models import (
     EvidenceSearchResult,
     SourceChunk,
     SourceDocument,
+    VerificationStatus,
 )
 from .context.provider import HybridContextProvider, LocalContextProvider
 from .context.service import ContextInputError, ContextNotFoundError, ContextService
@@ -472,6 +473,7 @@ def _conversation_prefers_discussion(message: str) -> bool:
         "先看看现有", "先梳理", "先分析一下可行性", "先讨论", "只讨论", "先了解",
         "暂不分析", "不要正式分析", "不开始正式分析", "先做资料理解",
         "不生成研究方案", "不要生成研究方案", "help me understand first", "do not start yet",
+        "不要检索", "不要搜索", "不要找证据", "先不要找证据", "只讨论证据",
         # Information requests are not consent to advance a workflow. These
         # markers cover the common case where a researcher asks what to
         # upload or how a field will be audited while a task is active.
@@ -520,6 +522,29 @@ def _auto_requests_workflow(message: str, state: ControlState) -> bool:
     )
     if any(term in normalized for term in start_research_terms) and _cn(0x68C0, 0x7D22) in normalized:
         return True
+    # The authenticated frontend sends natural Chinese action requests such
+    # as “确定研究问题与方案” and “找证据”.  These are explicit workflow
+    # commands even when they do not contain the older “开始检索” wording.
+    # Keep the discussion guard above first so “先讨论研究问题” remains QA.
+    research_design_actions = (
+        "\u786e\u5b9a\u7814\u7a76\u95ee\u9898",
+        "\u786e\u5b9a\u7814\u7a76\u65b9\u6848",
+        "\u7814\u7a76\u95ee\u9898\u4e0e\u65b9\u6848",
+        "\u5f62\u6210\u7814\u7a76\u8bbe\u8ba1",
+        "\u5236\u5b9a\u7814\u7a76\u65b9\u6848",
+        "\u751f\u6210\u7814\u7a76\u95ee\u9898",
+    )
+    evidence_retrieval_actions = (
+        "\u627e\u8bc1\u636e",
+        "\u67e5\u627e\u8bc1\u636e",
+        "\u5bfb\u627e\u8bc1\u636e",
+        "\u5217\u51fa\u539f\u6587\u8bc1\u636e",
+        "\u5019\u9009\u8bc1\u636e",
+        "\u641c\u7d22\u8bc1\u636e",
+        "\u67e5\u6587\u732e",
+    )
+    if any(term in normalized for term in (*research_design_actions, *evidence_retrieval_actions)):
+        return True
     if any(term in normalized for term in (_CN_INTENT["search"], _CN_INTENT["start_search"], _CN_INTENT["evidence_enough"], _CN_INTENT["continue"], _CN_INTENT["freeze"], _CN_INTENT["execute"], _CN_INTENT["generate_code"], "start search", "search directly", "evidence sufficient", "continue", "freeze", "execute analysis", "generate analysis code", "revise", "confirm", "approve", "confirm brief")):
         return True
     # Older dialogue turns used this wording for the "continue" affordance.
@@ -552,7 +577,12 @@ def _auto_requests_workflow(message: str, state: ControlState) -> bool:
         "\u76f4\u63a5\u68c0\u7d22", "\u5f00\u59cb\u68c0\u7d22", "\u7ee7\u7eed\u641c\u7d22", "\u518d\u641c", "\u8865\u5145\u6587\u732e", "\u6269\u5927\u68c0\u7d22",
         "\u8bc1\u636e\u8db3\u591f", "\u8bc1\u636e\u4e0d\u8db3", "\u8fdb\u5165\u7814\u7a76\u8bbe\u8ba1", "\u786e\u8ba4\u5e76\u7ee7\u7eed", "\u9000\u56de\u4fee\u6539",
         "\u91c7\u7528\u8fd9\u4e2a\u7814\u7a76\u95ee\u9898", "\u63a5\u53d7\u8fd9\u4e2a\u65b9\u6848", "\u51bb\u7ed3\u6570\u636e", "\u6267\u884c\u5206\u6790", "\u5f00\u59cb\u5206\u6790",
-        "\u751f\u6210\u7814\u7a76\u65b9\u6848", "\u5f00\u59cb\u5199\u4f5c", "\u53d1\u5e03\u8bba\u6587", "approve", "approved", "revise", "freeze",
+        "\u751f\u6210\u7814\u7a76\u65b9\u6848", "\u5f00\u59cb\u5199\u4f5c", "\u53d1\u5e03\u8bba\u6587",
+        "\u751f\u6210\u4ee3\u7801", "\u5206\u6790\u4ee3\u7801", "\u5199\u4ee3\u7801", "\u751f\u6210\u5019\u9009\u8bba\u6587",
+        "\u8bba\u6587\u8349\u7a3f", "\u8bba\u6587\u521d\u7a3f", "\u5b8c\u6574\u8bba\u6587", "generate code", "generate manuscript",
+        "python\u4ee3\u7801", "python \u4ee3\u7801", "\u4ee3\u7801\u6821\u9a8c", "\u5019\u9009\u8bba\u6587",
+        "\u8bba\u6587\u8349\u7a3f", "\u8bba\u6587\u521d\u7a3f", "\u751f\u6210\u4e00\u7bc7\u8bba\u6587", "\u751f\u6210\u5b8c\u6574\u8bba\u6587",
+        "approve", "approved", "revise", "freeze",
     )
     if any(term in normalized for term in explicit_actions):
         return True
@@ -2802,6 +2832,43 @@ def _sync_project_documents(project_id: str) -> list[str]:
     return sorted(set(source_ids))
 
 
+def _project_document_prompt_context(project_id: str, query: str) -> str:
+    """Return bounded excerpts from the researcher's uploaded documents.
+
+    Uploaded files live in the project document service first. This small
+    project-local retrieval layer makes them available to ordinary dialogue as
+    well as to formal evidence turns, without putting an entire paper into
+    every model prompt.
+    """
+
+    try:
+        sources = service.list_sources(project_id)
+        if not sources:
+            return ""
+        hits = service.search(
+            EvidenceSearchRequest(
+                project_id=project_id,
+                query=query,
+                limit=6,
+            )
+        )
+        lines = [
+            "项目已上传文献（仅供本项目对话参考，尚未自动视为正式核验来源）：",
+        ]
+        for hit in hits[:6]:
+            source = service.get_source(project_id, hit.evidence.source_id)
+            lines.append(
+                f"- {source.filename} / 片段 {hit.evidence.location.chunk_index}: "
+                f"{hit.evidence.excerpt[:900]}"
+            )
+        if len(lines) == 1:
+            lines.extend(f"- {source.filename}" for source in sources[:8])
+        return "\n".join(lines)
+    except Exception as error:  # noqa: BLE001 - local context is best effort
+        logger.warning("Could not build project document prompt context for %s: %s", project_id, error)
+        return ""
+
+
 def _project_dataset_summary(project_id: str) -> str | None:
     """Read only the uploaded dataset schema for exploratory conversation.
 
@@ -4595,6 +4662,353 @@ def _dialogue_version_change(
     )
 
 
+_RESEARCH_OUTPUT_HEADINGS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("research_question", ("研究问题与研究目标", "研究问题与方案", "研究问题", "核心问题", "主要问题")),
+    ("research_objective", ("研究目标", "研究目的", "研究意义")),
+    ("hypotheses", ("研究假设", "假设")),
+    ("research_object", ("研究对象", "研究场景", "样本对象", "样本与分组")),
+    ("study_design", ("研究设计", "实验设计", "研究方案")),
+    ("methods", ("研究方法", "实验方法", "方法")),
+    ("measurement", ("变量与测量", "变量", "测量指标", "主要指标", "结果变量", "主要结果")),
+    ("data_collection", ("数据收集", "资料收集", "数据来源")),
+    ("analysis_plan", ("数据分析", "统计分析", "分析计划", "分析方法")),
+    ("ethics_limitations", ("伦理", "伦理与局限", "局限", "研究局限")),
+)
+
+
+def _research_output_sections(answer_text: str) -> dict[str, str]:
+    """Extract readable heading sections without requiring a second LLM call."""
+
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for raw_line in answer_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current is not None:
+                sections.setdefault(current, []).append("")
+            continue
+        candidate = re.sub(r"^[#*\-\s\d一二三四五六七八九十百、.)]+", "", line)
+        candidate = candidate.strip().strip("*_`")
+        matched: str | None = None
+        remainder = ""
+        for key, aliases in _RESEARCH_OUTPUT_HEADINGS:
+            for alias in aliases:
+                if candidate == alias:
+                    matched = key
+                    break
+                if candidate.startswith(alias) and candidate[len(alias):].lstrip().startswith((":", "：")):
+                    matched = key
+                    remainder = candidate[len(alias):].lstrip(" :：")
+                    break
+            if matched is not None:
+                break
+        if matched is not None:
+            current = matched
+            sections.setdefault(current, [])
+            if remainder:
+                sections[current].append(remainder)
+            continue
+        if current is not None:
+            sections.setdefault(current, []).append(line)
+    return {
+        key: "\n".join(value).strip()
+        for key, value in sections.items()
+        if "\n".join(value).strip()
+    }
+
+
+def _research_output_list(value: str | None, fallback: list[str] | None = None) -> list[str]:
+    if not value:
+        return list(fallback or [])
+    items: list[str] = []
+    for line in value.splitlines():
+        cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十百]+[、.)])\s*", "", line).strip()
+        if cleaned:
+            items.append(cleaned)
+    return items or list(fallback or [])
+
+
+def _research_output_is_structured(question: str, answer_text: str, sections: dict[str, str]) -> bool:
+    """Only promote substantive research-planning answers to workbench cards."""
+
+    if len(answer_text.strip()) < 180:
+        return False
+    question_lower = question.lower()
+    answer_lower = answer_text.lower()
+    question_signals = (
+        "研究问题", "研究方案", "研究设计", "研究方法", "研究假设",
+        "研究对象", "变量", "样本", "数据分析", "实验组", "对照组",
+        "research question", "study design", "research protocol",
+    )
+    answer_signals = (
+        "研究问题", "研究目标", "研究假设", "研究对象", "研究设计",
+        "研究方法", "变量", "样本", "数据收集", "数据分析", "伦理",
+        "局限", "hypothes", "method", "analysis", "sampling",
+    )
+    question_score = sum(marker in question_lower for marker in question_signals)
+    answer_score = sum(marker in answer_lower for marker in answer_signals)
+    return (
+        question_score >= 1
+        and answer_score >= 3
+        and (
+            len(sections) >= 2
+            or answer_score >= 5
+        )
+    )
+
+
+def _persist_conversational_research_outputs(
+    *,
+    project_id: str,
+    request: ConversationCommandRequest,
+    answer: QAAnswerResponse,
+    forced_output_kind: str | None = None,
+) -> bool:
+    """Bridge substantive conversational output into provisional workbench artifacts.
+
+    The normal route is still the orchestration workflow. This projection is
+    the safety net for a discussion turn that produced a real candidate anyway:
+    it keeps the result reviewable without pretending that it is approved.
+    """
+
+    answer_text = answer.answer.strip()
+    sections = _research_output_sections(answer_text)
+    normalized_question = request.message.strip().lower()
+    artifact_specs: list[tuple[str, str, dict[str, object]]] = []
+
+    turn_key = answer.turn_id or request.client_turn_id or sha256_text(
+        f"{project_id}|{request.message}|{answer_text}"
+    )[:24]
+    safe_turn_key = re.sub(r"[^A-Za-z0-9_.:-]+", "-", turn_key)[:96]
+    provenance = {
+        "source": "conversation_llm_answer",
+        "conversation_id": answer.conversation_id,
+        "turn_id": answer.turn_id or request.client_turn_id,
+        "requires_confirmation": True,
+        "source_question": request.message[:4000],
+    }
+    if _research_output_is_structured(request.message, answer_text, sections):
+        artifact_specs.extend([
+            ("research-question", "ResearchQuestionTree", {
+                "project_id": project_id,
+                "title": "对话生成的研究问题候选",
+                "primary_question": sections.get("research_question") or answer_text[:1000],
+                "research_questions": _research_output_list(sections.get("research_question")),
+                "research_objective": sections.get("research_objective", ""),
+                "hypotheses": _research_output_list(sections.get("hypotheses")),
+                "research_object": sections.get("research_object", ""),
+                "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+                "requires_confirmation": True,
+                "raw_answer": answer_text,
+                "provenance": provenance,
+            }),
+            ("study-protocol", "StudyProtocolCandidate", {
+                "project_id": project_id,
+                "title": "对话生成的研究方案候选",
+                "design_type": sections.get("study_design", "研究设计待从完整回答中确认"),
+                "primary_outcome": sections.get("measurement", "主要结果指标待确认"),
+                "sampling_approach": sections.get("research_object", "研究对象与样本边界待确认"),
+                "variables": _research_output_list(sections.get("measurement")),
+                "analysis_plan": sections.get("analysis_plan", "分析计划待确认"),
+                "hypotheses": _research_output_list(sections.get("hypotheses")),
+                "methods": sections.get("methods", ""),
+                "data_collection": sections.get("data_collection", ""),
+                "ethics_limitations": sections.get("ethics_limitations", ""),
+                "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+                "requires_confirmation": True,
+                "raw_answer": answer_text,
+                "provenance": provenance,
+            }),
+        ])
+
+    code_requested = (
+        forced_output_kind == "code"
+        or _direct_conversation_output_request(request.message) == "code"
+    ) and any(
+        token in answer_text for token in ("```", "import ", "def ", "class ", "pandas", "numpy")
+    )
+    if code_requested:
+        fenced = re.search(r"```(?:python|py)?\s*(.*?)```", answer_text, re.IGNORECASE | re.DOTALL)
+        source_code = (fenced.group(1) if fenced else answer_text).strip()
+        artifact_specs.append(("python-code", "PhysicsCodeValidationCandidate", {
+            "project_id": project_id,
+            "title": "对话生成的 Python 代码候选",
+            "language": "python",
+            "source_code": source_code,
+            "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+            "requires_human_review": True,
+            "provenance": provenance,
+        }))
+
+    paper_requested = (
+        len(answer_text) >= 220
+        and (
+        forced_output_kind == "manuscript"
+        or _direct_conversation_output_request(request.message) == "manuscript"
+            or (
+                "论文" in normalized_question
+                and any(marker in normalized_question for marker in ("生成", "写", "输出", "保存"))
+            )
+            or any(marker in normalized_question for marker in ("manuscript", "write the paper", "generate manuscript"))
+        )
+    )
+    if paper_requested:
+        title = sections.get("research_question", "").splitlines()[0][:160] or "对话生成的候选论文"
+        artifact_specs.append(("manuscript", "ManuscriptDraftZh", {
+            "project_id": project_id,
+            "title": title,
+            "sections": {
+                "title": title,
+                "abstract": sections.get("research_objective", ""),
+                "body": answer_text,
+            },
+            "full_text": answer_text,
+            "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+            "requires_human_review": True,
+            "provenance": provenance,
+        }))
+
+    if not artifact_specs:
+        return False
+
+    saved_any = False
+    for suffix, artifact_type, body in artifact_specs:
+        artifact_id = f"conversation:{project_id}:{safe_turn_key}:{suffix}"
+        existing_content = artifact_content_store.get(project_id, artifact_id)
+        if existing_content is not None:
+            if artifact_store.get(project_id, artifact_id) is None:
+                artifact_store.put(
+                    ArtifactRef(
+                        artifact_id=artifact_id,
+                        project_id=project_id,
+                        artifact_type=existing_content.artifact_type,
+                        version=existing_content.version,
+                        content_uri=(
+                            f"artifact-content://{project_id}/{artifact_id}/{existing_content.version}"
+                        ),
+                        sha256=existing_content.content_hash or sha256_text(
+                            existing_content.model_dump_json()
+                        ),
+                        created_at=existing_content.created_at,
+                        created_by="conversation_llm",
+                        status="CANDIDATE",
+                    )
+                )
+            continue
+        saved_content = artifact_content_store.put(
+            ArtifactContent(
+                project_id=project_id,
+                artifact_id=artifact_id,
+                version=1,
+                artifact_type=artifact_type,
+                schema_version="conversational-research-output-v1",
+                body=body,
+            )
+        )
+        artifact_store.put(
+            ArtifactRef(
+                artifact_id=artifact_id,
+                project_id=project_id,
+                artifact_type=artifact_type,
+                version=saved_content.version,
+                content_uri=f"artifact-content://{project_id}/{artifact_id}/{saved_content.version}",
+                sha256=saved_content.content_hash or sha256_text(saved_content.model_dump_json()),
+                created_at=saved_content.created_at,
+                created_by="conversation_llm",
+                status="CANDIDATE",
+            )
+        )
+        saved_any = True
+    return saved_any
+
+
+def _direct_conversation_output_request(message: str) -> str | None:
+    """Return the requested direct workbench output kind, if any."""
+
+    normalized = message.strip().lower()
+    action_markers = (
+        "生成", "写", "输出", "提供", "保存", "整理", "generate", "write", "create",
+    )
+    if not any(marker in normalized for marker in action_markers):
+        return None
+    if any(
+        marker in normalized
+        for marker in (
+            "python代码", "python 代码", "分析代码", "代码校验", "代码候选",
+            "生成代码", "写代码", "generate code", "python code",
+        )
+    ):
+        return "code"
+    if any(
+        marker in normalized
+        for marker in (
+            "候选论文", "论文草稿", "论文初稿", "生成论文", "写论文",
+            "完整论文", "论文正文", "manuscript", "write the paper",
+        )
+    ):
+        return "manuscript"
+    return None
+
+
+def _persist_forced_manuscript_candidate(
+    *,
+    project_id: str,
+    request: ConversationCommandRequest,
+    answer: QAAnswerResponse,
+) -> None:
+    """Persist a direct manuscript response even if another projection fails."""
+
+    answer_text = answer.answer.strip()
+    turn_key = answer.turn_id or request.client_turn_id or sha256_text(
+        f"{project_id}|{request.message}|{answer_text}"
+    )[:24]
+    safe_turn_key = re.sub(r"[^A-Za-z0-9_.:-]+", "-", turn_key)[:96]
+    artifact_id = f"conversation:{project_id}:{safe_turn_key}:manuscript"
+    body = {
+        "project_id": project_id,
+        "title": "对话生成的候选论文",
+        "sections": {
+            "title": "对话生成的候选论文",
+            "abstract": "候选稿待结合项目证据审阅。",
+            "body": answer_text,
+        },
+        "full_text": answer_text,
+        "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+        "requires_human_review": True,
+        "provenance": {
+            "source": "conversation_llm_answer",
+            "conversation_id": answer.conversation_id,
+            "turn_id": answer.turn_id or request.client_turn_id,
+            "source_question": request.message[:4000],
+        },
+    }
+    if artifact_content_store.get(project_id, artifact_id) is not None:
+        return
+    saved_content = artifact_content_store.put(
+        ArtifactContent(
+            project_id=project_id,
+            artifact_id=artifact_id,
+            version=1,
+            artifact_type="ManuscriptDraftZh",
+            schema_version="conversational-research-output-v1",
+            body=body,
+        )
+    )
+    artifact_store.put(
+        ArtifactRef(
+            artifact_id=artifact_id,
+            project_id=project_id,
+            artifact_type="ManuscriptDraftZh",
+            version=saved_content.version,
+            content_uri=f"artifact-content://{project_id}/{artifact_id}/{saved_content.version}",
+            sha256=saved_content.content_hash or sha256_text(saved_content.model_dump_json()),
+            created_at=saved_content.created_at,
+            created_by="conversation_llm",
+            status="CANDIDATE",
+        )
+    )
+
+
 def _discussion_response(
     *,
     project_id: str,
@@ -4631,6 +5045,10 @@ def _discussion_response(
     # discussion turn can use the researcher's files instead of falling back
     # to an unrelated shared-corpus hit.
     local_source_ids = _sync_project_documents(project_id)
+    local_document_context = _project_document_prompt_context(
+        project_id,
+        request.message,
+    )
     dataset_summary = _project_dataset_summary(project_id)
     external_request = any(
         marker in request.message.strip().lower()
@@ -4650,7 +5068,12 @@ def _discussion_response(
     # boundary. Keep project identity at the front and newer guidance at the
     # end.
     dataset_context = f"\n当前已登记数据：{dataset_summary}" if dataset_summary else ""
-    combined_context = (project_context or "") + dataset_context + collaboration_context
+    combined_context = (
+        (project_context or "")
+        + ("\n" + local_document_context if local_document_context else "")
+        + dataset_context
+        + collaboration_context
+    )
     if len(combined_context) > 4000:
         head = (project_context or "")[:1200]
         tail = combined_context[-(4000 - len(head)):]
@@ -4695,6 +5118,87 @@ def _discussion_response(
         if external_request or planned_evidence_search or local_evidence_request
         else qa_service.converse(qa_request)
     )
+    direct_output_kind = _direct_conversation_output_request(request.message)
+    if direct_output_kind == "code" and not any(
+        marker in answer.answer
+        for marker in ("```", "import ", "def ", "pandas", "numpy")
+    ):
+        fallback_code = """```python
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+
+CSV_PATH = Path("your_data.csv")
+GROUP_COLUMN = "group"       # 待按实际表头确认
+VALUE_COLUMN = "measurement" # 待按实际表头确认
+
+
+def audit_and_summarize(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    print("字段：", list(frame.columns))
+    print("缺失值：\\n", frame.isna().sum())
+    required = [GROUP_COLUMN, VALUE_COLUMN]
+    missing = [name for name in required if name not in frame.columns]
+    if missing:
+        raise KeyError(f"请先确认字段名：{missing}")
+    clean = frame.dropna(subset=required).copy()
+    summary = (
+        clean.groupby(GROUP_COLUMN, dropna=False)[VALUE_COLUMN]
+        .agg(["count", "mean", "std"])
+        .reset_index()
+    )
+    summary["sem"] = summary["std"].fillna(0) / summary["count"].clip(lower=1).pow(0.5)
+    return summary
+
+
+summary = audit_and_summarize(CSV_PATH)
+ax = summary.plot.bar(
+    x=GROUP_COLUMN,
+    y="mean",
+    yerr="sem",
+    capsize=4,
+    legend=False,
+    title="各组均值及标准误",
+)
+ax.set_ylabel(VALUE_COLUMN)
+plt.tight_layout()
+plt.show()
+```"""
+        answer = answer.model_copy(update={
+            "answer": (
+                "已先生成一份可审阅的 Python 代码候选。当前 CSV 的分组字段和结果字段尚未确认，"
+                "代码会先输出字段与缺失值，再按确认后的字段计算各组均值和标准误并绘图；"
+                "尚未执行，也不会把示例字段当成真实数据。\n\n"
+                + fallback_code
+            ),
+            "route": QARouteDecision(
+                route="direct_answer",
+                reason="直接代码产出候选",
+                recommended_agent="analysis_code",
+            ),
+            "citations": [],
+            "answer_mode": "fallback",
+        })
+    elif direct_output_kind == "manuscript" and len(answer.answer.strip()) < 220:
+        answer = answer.model_copy(update={
+            "answer": (
+                "已生成候选论文草稿框架，具体样本、效应量和结论仍需绑定项目证据后审阅。\n\n"
+                "## 题目\n待根据研究问题确认\n\n"
+                "## 摘要\n本研究拟围绕当前项目的研究问题，基于已上传资料和后续审计结果形成可复核的研究结论。"
+                "当前不填入未经核验的样本量、效应量或因果表述。\n\n"
+                "## 研究方法\n研究对象、变量定义、数据处理和统计方法待结合项目资料确认。\n\n"
+                "## 结果与讨论\n待完成数据审查、证据核验和人工确认后写入。"
+            ),
+            "route": QARouteDecision(
+                route="direct_answer",
+                reason="直接论文产出候选",
+                recommended_agent="paper_writing",
+            ),
+            "citations": [],
+            "answer_mode": "fallback",
+        })
     domain_correction = getattr(answer, "domain_correction", None)
     if isinstance(domain_correction, dict):
         # Keep the correction in the project audit trail as well as the QA
@@ -4712,7 +5216,18 @@ def _discussion_response(
     # The first post-upload turn is a receipt check, not a literature
     # question. Return facts from the actual CSV instead of the generic
     # fallback that says the assistant cannot see a table header.
-    if dataset_summary and any(term in request.message.lower() for term in ("实际读取", "字段", "表头", "csv")):
+    explicit_code_request = any(
+        term in request.message.strip().lower()
+        for term in (
+            "生成代码", "分析代码", "python代码", "python 代码",
+            "代码候选", "写代码", "generate code", "python code",
+        )
+    )
+    if (
+        dataset_summary
+        and not explicit_code_request
+        and any(term in request.message.lower() for term in ("实际读取", "字段", "表头", "csv"))
+    ):
         factual_answer = (
             f"{dataset_summary}\n\n"
             "目前只完成了文件接收和字段识别，没有执行正式统计或主题分析。"
@@ -4857,6 +5372,15 @@ def _discussion_response(
                 f"{revision.reason}{consequence}"
             )
         response_message += "\n\n新证据改变了当前研究判断：\n" + "\n".join(changes)
+    try:
+        _persist_conversational_research_outputs(
+            project_id=project_id,
+            request=request,
+            answer=answer,
+            forced_output_kind=direct_output_kind,
+        )
+    except Exception:  # noqa: BLE001 - a workbench projection must not break chat
+        logger.exception("Could not persist conversational research outputs for %s", project_id)
     return {
         "kind": "qa",
         "message": response_message,
@@ -5001,6 +5525,44 @@ def _project_conversation_command_impl(
         raise ContextInputError("project_mismatch", "path project_id does not match request project_id")
     message = request.intent or request.message
     current_state = control_plane.ensure_project(project_id)
+    direct_output_kind = _direct_conversation_output_request(message)
+    if (
+        direct_output_kind is not None
+        and not _conversation_prefers_discussion(message)
+        and not any(
+            marker in message.strip().lower()
+            for marker in ("不要生成", "不生成", "先不生成", "暂不生成", "do not generate")
+        )
+    ):
+        direct_instruction = (
+            "请直接完成用户要求并输出可审阅候选，不要只提问或返回字段说明。"
+            if direct_output_kind == "code"
+            else "请直接生成候选论文正文，并明确标出待核验内容，不要只给写作建议。"
+        )
+        direct_response = _discussion_response(
+            project_id=project_id,
+            request=request,
+            state=current_state,
+            project_context=(
+                f"项目名称：{project.title}\n"
+                f"研究方向：{project.research_direction}\n"
+                f"本轮输出要求：{direct_instruction}\n"
+                "生成的候选必须保留在产出工作区，等待人工审阅；不要把候选冒充正式结果。"
+            ),
+            collaboration=None,
+        )
+        if direct_output_kind == "manuscript":
+            try:
+                answer_payload = direct_response.get("answer")
+                if isinstance(answer_payload, dict):
+                    _persist_forced_manuscript_candidate(
+                        project_id=project_id,
+                        request=request,
+                        answer=QAAnswerResponse.model_validate(answer_payload),
+                    )
+            except Exception:  # noqa: BLE001 - direct chat must remain available
+                logger.exception("Could not persist forced manuscript candidate for %s", project_id)
+        return direct_response
     # Projects created before the conversational flow was introduced may
     # still have a pending Gate for an internal operator (for example
     # ``research_design_approval``).  Migrate that durable state once while
@@ -5111,6 +5673,25 @@ def _project_conversation_command_impl(
         requested_mode=request.interaction_mode,
         source_turn_id=request.client_turn_id,
     )
+    direct_output_kind = _direct_conversation_output_request(message)
+    if direct_output_kind is not None and request.interaction_mode in {"auto", "discussion"}:
+        direct_instruction = (
+            "请直接完成用户要求并输出可审阅候选，不要只提问或返回字段说明。"
+            if direct_output_kind == "code"
+            else "请直接生成候选论文正文，并明确标出待核验内容，不要只给写作建议。"
+        )
+        return _discussion_response(
+            project_id=project_id,
+            request=request,
+            state=current_state,
+            project_context=(
+                f"项目名称：{project.title}\n"
+                f"研究方向：{project.research_direction}\n"
+                f"本轮输出要求：{direct_instruction}\n"
+                "生成的候选必须保留在产出工作区，等待人工审阅；不要把候选冒充正式结果。"
+            ),
+            collaboration=collaboration,
+        )
     # Treat explicit design confirmations as continuation signals.  Without
     # this guard, a short confirmation could fall into the generic QA path
     # and return the stale “local evidence not found” answer instead of
@@ -5267,8 +5848,7 @@ def _project_conversation_command_impl(
     # classifier here so explicit actions advance the workflow, while normal
     # questions and deliberation remain in QA/discussion.
     if (
-        request.interaction_mode == "discussion"
-        and resolved_interaction_mode == "discussion"
+        request.interaction_mode in {"discussion", "auto"}
         and _auto_requests_workflow(message, current_state)
     ):
         resolved_interaction_mode = "workflow"
@@ -6444,6 +7024,19 @@ def project_conversation_command(
         journal.update(project_id, turn["turn_id"], status="processing")
         response = _project_conversation_command_impl(project_id, request, user)
         if isinstance(response, dict):
+            # Some older workflow branches can still return a QA answer
+            # directly. Apply the same workbench bridge at the endpoint
+            # boundary so every conversational response is covered.
+            answer_payload = response.get("answer")
+            if isinstance(answer_payload, dict):
+                try:
+                    _persist_conversational_research_outputs(
+                        project_id=project_id,
+                        request=request,
+                        answer=QAAnswerResponse.model_validate(answer_payload),
+                    )
+                except Exception:  # noqa: BLE001 - projection must not break the response
+                    logger.exception("Could not bridge conversational answer for %s", project_id)
             journal.update(project_id, turn["turn_id"], status="completed", response=response)
         else:
             journal.update(project_id, turn["turn_id"], status="failed")
@@ -6873,6 +7466,192 @@ def _build_evidence_review_package(
         "used_evidence_refs": evidence_ids,
         "source_artifact_ids": artifact_ids,
     }
+
+
+def _legacy_project_evidence_context(project_id: str, research_scope: str) -> ContextBundle:
+    """Build a non-authorizing context from evidence stored by older projects.
+
+    Older authenticated projects may have searchable evidence in ``context.db``
+    without ever creating orchestration artifacts.  This helper deliberately
+    reads those records into a temporary review context; it does not verify,
+    promote, or persist a workflow artifact.
+    """
+
+    allowed_statuses = list(VerificationStatus)
+    request = EvidenceSearchRequest(
+        project_id=project_id,
+        query=research_scope or "当前研究主题",
+        limit=50,
+        allowed_verification_statuses=allowed_statuses,
+    )
+    results = service.search(request)
+    if not results:
+        # A vocabulary mismatch should not hide already imported evidence.
+        results = service._discovery_candidates(  # noqa: SLF001 - compatibility projection
+            ContextBuildRequest(
+                project_id=project_id,
+                task_ref=f"legacy:{project_id}:evidence-review",
+                query=research_scope or "当前研究主题",
+                token_budget=8_000,
+                max_chunks_per_source=3,
+                allow_discovery_fallback=True,
+                allowed_verification_statuses=allowed_statuses,
+            )
+        )
+    selected: list[EvidenceRef] = []
+    source_counts: dict[str, int] = {}
+    used_tokens = 0
+    for result in results:
+        evidence = result.evidence
+        if source_counts.get(evidence.source_id, 0) >= 3:
+            continue
+        cost = max(1, len(evidence.excerpt) // 4)
+        if used_tokens + cost > 8_000:
+            continue
+        selected.append(evidence)
+        source_counts[evidence.source_id] = source_counts.get(evidence.source_id, 0) + 1
+        used_tokens += cost
+    summary = {
+        status.value: sum(item.verification_status == status for item in selected)
+        for status in VerificationStatus
+    }
+    canonical = json.dumps(
+        {
+            "project_id": project_id,
+            "task_ref": f"legacy:{project_id}:evidence-review",
+            "query": research_scope,
+            "evidence": [item.evidence_id for item in selected],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return ContextBundle(
+        context_id=f"ctx_legacy_{project_id}",
+        project_id=project_id,
+        task_ref=f"legacy:{project_id}:evidence-review",
+        query=research_scope or "当前研究主题",
+        evidence_refs=selected,
+        source_refs=sorted(source_counts),
+        unresolved_questions=[] if selected else ["当前项目没有可读取的候选证据"],
+        risk_flags=["legacy_read_only_projection"],
+        verification_summary=summary,
+        token_budget=8_000,
+        estimated_tokens=used_tokens,
+        context_hash=sha256_text(canonical),
+        generated_at=datetime.now(UTC).isoformat(),
+        context_mode="local",
+        retrieval_strategy="legacy_project_evidence",
+    )
+
+
+def _legacy_qa_turns(project_id: str) -> list[dict[str, object]]:
+    """Read ordinary QA turns for a read-only projection of legacy work."""
+
+    try:
+        conversations = qa_service.list_conversations(project_id, limit=50)
+        turns: list[dict[str, object]] = []
+        for conversation in conversations:
+            for turn in qa_service.conversation_turns(
+                project_id,
+                conversation.conversation_id,
+                limit=100,
+            ):
+                turns.append(turn.model_dump(mode="json"))
+        return sorted(turns, key=lambda item: str(item.get("created_at") or ""))
+    except Exception as error:  # noqa: BLE001 - legacy display must be best effort
+        logger.warning("Could not read legacy QA turns for %s: %s", project_id, error)
+        return []
+
+
+def _legacy_workflow_artifacts(project_id: str) -> list[ArtifactContent]:
+    """Expose legacy conversation conclusions as explicitly provisional cards."""
+
+    existing_types = {
+        item.artifact_type for item in artifact_content_store.list_project(project_id)
+    }
+    turns = _legacy_qa_turns(project_id)
+    if not turns:
+        return []
+    relevant = [
+        item for item in turns
+        if any(
+            term in str(item.get("question") or "").lower()
+            for term in (
+                "研究问题", "研究方案", "研究设计", "研究对象", "研究方法",
+                "研究边界", "研究场景", "确定研究", "方案",
+            )
+        )
+    ]
+    if not relevant:
+        return []
+    excerpts = [
+        {
+            "question": str(item.get("question") or "").strip(),
+            "answer": str(item.get("answer") or "").strip()[:1200],
+            "created_at": item.get("created_at"),
+        }
+        for item in relevant[-6:]
+    ]
+    projected: list[ArtifactContent] = []
+    if "ResearchQuestionTree" not in existing_types:
+        question_body = {
+            "project_id": project_id,
+            "title": "历史对话中的研究问题候选",
+            "primary_question": "请根据历史对话确认研究对象、场景、方法、发现与边界，形成正式研究问题。",
+            "research_questions": [
+                "研究对象与场景是什么？",
+                "拟采用什么研究方法？",
+                "哪些发现或判断需要证据支持？",
+                "结论边界应如何限定？",
+            ],
+            "status": "LEGACY_CANDIDATE_REQUIRES_CONFIRMATION",
+            "provenance": {
+                "source": "ordinary_qa_history",
+                "read_only": True,
+                "note": "这是旧项目的历史候选，不等同于已批准的研究问题。",
+            },
+            "conversation_excerpts": excerpts,
+        }
+        projected.append(
+            ArtifactContent(
+                project_id=project_id,
+                artifact_id=f"legacy-projection:{project_id}:research-question",
+                version=1,
+                artifact_type="ResearchQuestionTree",
+                schema_version="legacy-projection-v1",
+                body=question_body,
+            )
+        )
+    if "StudyProtocolCandidate" not in existing_types:
+        protocol_body = {
+            "project_id": project_id,
+            "title": "历史对话中的研究方案候选",
+            "design_type": "待从历史对话确认",
+            "primary_outcome": "待研究者确认",
+            "sampling_approach": "待研究者确认研究对象与纳入边界",
+            "variables": ["研究对象", "研究场景", "研究方法", "研究发现", "解释边界"],
+            "analysis_plan": "历史对话仅作为候选输入，需确认后再形成可执行分析计划。",
+            "hypotheses": [],
+            "status": "LEGACY_CANDIDATE_REQUIRES_CONFIRMATION",
+            "provenance": {
+                "source": "ordinary_qa_history",
+                "read_only": True,
+                "note": "这是旧项目的历史候选，不等同于已批准的研究方案。",
+            },
+            "conversation_excerpts": excerpts,
+        }
+        projected.append(
+            ArtifactContent(
+                project_id=project_id,
+                artifact_id=f"legacy-projection:{project_id}:study-protocol",
+                version=1,
+                artifact_type="StudyProtocolCandidate",
+                schema_version="legacy-projection-v1",
+                body=protocol_body,
+            )
+        )
+    return projected
 
 
 def _research_brief_fields(
@@ -7679,13 +8458,44 @@ def project_evidence_review_package(
 ) -> dict[str, object]:
     """Return the latest human-readable evidence package for the project."""
 
-    identity_service.get_project(user, project_id)
+    project = identity_service.get_project(user, project_id)
     packages = [
         item for item in artifact_content_store.list_project(project_id)
         if item.artifact_type == "EvidenceReviewPackage"
     ]
     if not packages:
-        raise HTTPException(status_code=404, detail="evidence review package was not found")
+        # Older authenticated projects may have searchable evidence and QA
+        # turns but no orchestration artifact because their commands were
+        # routed through the ordinary chat path.  Present that material as a
+        # read-only candidate package so the workbench can recover it without
+        # pretending that it passed human verification.
+        has_legacy_material = bool(service.list_sources(project_id)) or bool(_legacy_qa_turns(project_id))
+        if not has_legacy_material:
+            raise HTTPException(status_code=404, detail="evidence review package was not found")
+        context_bundle = _legacy_project_evidence_context(
+            project_id,
+            _canonical_research_scope(project.research_direction),
+        )
+        body = _build_evidence_review_package(
+            project_id,
+            _canonical_research_scope(project.research_direction),
+            [],
+            context_bundle=context_bundle,
+        )
+        body["legacy_projection"] = True
+        body["legacy_projection_note"] = (
+            "这是旧项目的只读候选包。候选证据仍需人工核对原文定位后，"
+            "才能进入正式证据库。"
+        )
+        content = ArtifactContent(
+            project_id=project_id,
+            artifact_id=f"legacy-projection:{project_id}:evidence-review",
+            version=1,
+            artifact_type="EvidenceReviewPackage",
+            schema_version="legacy-projection-v1",
+            body=body,
+        )
+        return content.model_dump(mode="json")
     # Artifact ids are random and their lexical order is unrelated to time.
     # Always return the newest immutable package revision. Older packages
     # were written before retrieval trace de-duplication was added, so clean
@@ -10145,6 +10955,27 @@ def project_workflow_formal_evidence(
     return workflow_controller.list_formal_evidence(project_id)
 
 
+@app.post(
+    "/api/v1/projects/{project_id}/workflow/evidence/{evidence_id}/promote",
+    response_model=FormalEvidenceRecord,
+)
+def promote_verified_project_evidence(
+    project_id: str,
+    evidence_id: str,
+    user: Annotated[UserProfile, Depends(current_user)],
+) -> FormalEvidenceRecord:
+    """Promote a source-verified evidence snapshot from the workbench."""
+
+    identity_service.get_project(user, project_id)
+    evidence = service.get_evidence(project_id, evidence_id)
+    return workflow_controller.promote_verified_evidence(
+        project_id,
+        evidence_id,
+        evidence.model_dump(mode="json"),
+        promoted_by=user.username,
+    )
+
+
 @app.post("/api/v1/projects/{project_id}/workflow/artifacts/{artifact_id}/decision")
 def project_workflow_artifact_decision(
     project_id: str,
@@ -10171,6 +11002,78 @@ def project_workflow_artifact_decision(
                 promoted_at=record.promoted_at.isoformat(),
             )
     return result
+
+
+class CodeArtifactVersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_code: str = Field(min_length=1, max_length=200_000)
+    change_note: str | None = Field(default=None, max_length=500)
+
+
+@app.post("/api/v1/projects/{project_id}/workflow/artifacts/{artifact_id}/code-version")
+def project_workflow_code_version(
+    project_id: str,
+    artifact_id: str,
+    request: CodeArtifactVersionRequest,
+    user: Annotated[UserProfile, Depends(current_user)],
+) -> dict[str, object]:
+    """Persist a researcher-edited code candidate as a new immutable version."""
+
+    identity_service.get_project(user, project_id)
+    artifact = artifact_store.get(project_id, artifact_id)
+    content = artifact_content_store.get(project_id, artifact_id)
+    if artifact is None or content is None:
+        raise ContextInputError("artifact_not_found", "代码候选产物不存在")
+
+    code_keys = {"source_code", "code", "python_code", "generated_code", "script"}
+    has_code = any(isinstance(content.body.get(key), str) for key in code_keys)
+    if not has_code and content.artifact_type not in {
+        "AnalysisCodePlanCandidate",
+        "CodeSpecificationDraft",
+        "CodeReviewCandidate",
+        "PhysicsCodeValidationCandidate",
+        "PatternDiscoveryCodeCandidate",
+    }:
+        raise ContextInputError("artifact_is_not_code", "当前产物不是可编辑的代码候选")
+
+    body = dict(content.body)
+    source_key = next(
+        (key for key in code_keys if isinstance(body.get(key), str)),
+        "source_code",
+    )
+    body[source_key] = request.source_code
+    body["edited_by"] = user.username
+    body["change_note"] = request.change_note or "研究者编辑代码候选"
+    next_version = content.version + 1
+    saved_content = artifact_content_store.put(
+        ArtifactContent(
+            project_id=project_id,
+            artifact_id=artifact_id,
+            artifact_type=content.artifact_type,
+            version=next_version,
+            schema_version=content.schema_version,
+            body=body,
+        )
+    )
+    saved_artifact = artifact_store.put(
+        artifact.model_copy(
+            update={
+                "version": next_version,
+                "content_uri": f"artifact-content://{project_id}/{artifact_id}/{next_version}",
+                "sha256": saved_content.content_hash,
+                "created_at": saved_content.created_at,
+                "created_by": user.username,
+                "status": "CANDIDATE",
+                "supersedes_ref": artifact.content_uri,
+            }
+        )
+    )
+    return {
+        "artifact": saved_artifact.model_dump(mode="json"),
+        "content": saved_content.model_dump(mode="json"),
+        "change_note": body["change_note"],
+    }
 
 
 def _candidate_manuscript_markdown(
@@ -10590,7 +11493,11 @@ def workflow_artifacts(project_id: str) -> list[ArtifactRef]:
 
 @app.get("/api/v1/workflow/projects/{project_id}/artifact-contents")
 def workflow_artifact_contents(project_id: str) -> list[ArtifactContent]:
-    return artifact_content_store.list_project(project_id)
+    contents = artifact_content_store.list_project(project_id)
+    # Keep legacy QA-only projects visible in the same workbench contract as
+    # newer orchestrated projects.  These cards are clearly marked
+    # provisional and are never written to the immutable artifact store.
+    return [*contents, *_legacy_workflow_artifacts(project_id)]
 
 
 @app.get("/api/v1/workflow/projects/{project_id}/agent-runs")

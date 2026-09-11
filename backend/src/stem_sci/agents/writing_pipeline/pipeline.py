@@ -11,16 +11,17 @@ from stem_sci.agents.runtime import (
     StructuredGenerationError,
     StructuredGenerator,
 )
+from stem_sci.skills.journal_writing import JournalProfileLoader, JournalSkillError
 
 from .bilingual import compare_bilingual_drafts
 from .models import (
     AtomicClaimGraph,
     BilingualConsistencyStatus,
-    WritingCritiqueFinding,
     WritingContextBundle,
+    WritingCritiqueFinding,
     WritingPackage,
-    WritingSufficiencyStatus,
     WritingReviewerFinding,
+    WritingSufficiencyStatus,
 )
 from .prompts import register_writing_prompts
 from .stages import (
@@ -43,10 +44,12 @@ class PaperWritingPipeline:
         model: str,
         prompt_registry: PromptRegistry | None = None,
         enable_llm_review: bool | None = None,
+        journal_loader: JournalProfileLoader | None = None,
     ) -> None:
         self.generator = generator
         self.model = model
         self.prompt_registry = prompt_registry or PromptRegistry()
+        self.journal_loader = journal_loader or JournalProfileLoader()
         register_writing_prompts(self.prompt_registry)
         if enable_llm_review is None:
             configured = _as_bool(
@@ -63,6 +66,7 @@ class PaperWritingPipeline:
 
     def run(self, context: WritingContextBundle, agent_input: AgentInput) -> WritingPackage:
         del agent_input
+        context = self._context_with_empirical_framework(context)
         sufficiency = audit_writing_inputs(context)
         risks: list[str] = []
         metadata_refs: list[str] = []
@@ -208,6 +212,23 @@ class PaperWritingPipeline:
             generation_metadata_refs=metadata_refs,
             critique=critique,
         )
+
+    def _context_with_empirical_framework(
+        self, context: WritingContextBundle
+    ) -> WritingContextBundle:
+        constraints = dict(context.journal_constraints)
+        style_layers = constraints.get("style_layers")
+        has_framework = "empirical_framework" in constraints or (
+            isinstance(style_layers, dict) and "empirical_framework" in style_layers
+        )
+        if has_framework:
+            return context
+        try:
+            framework = self.journal_loader.load_empirical_framework()
+        except (JournalSkillError, OSError):
+            return context
+        constraints["empirical_framework"] = framework
+        return context.model_copy(update={"journal_constraints": constraints})
 
 
 def _as_bool(value: str) -> bool:

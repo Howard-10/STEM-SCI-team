@@ -1,0 +1,38 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and credentials
+.env*
+!.env.example
+!**/.env.example
+**/OAI_CONFIG_LIST.json
+.streamlit/secrets.toml
+
+# Runtime data, uploads, generated artifacts, and caches
+*.log
+*.pid
+services/teaching/projects/
+services/teaching/data/processed/
+services/teaching/data/experiments/
+services/teaching/data/literature/projects/
+services/teaching/data/literature/papers/
+services/research/examples/*/output/
+services/research/examples/*/logs/
+
+# System and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

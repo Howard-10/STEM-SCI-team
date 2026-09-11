@@ -1,8 +1,8 @@
+import pytest
+
 from stem_sci.agents import AgentInput, PaperWritingAgent
 from stem_sci.agents.evidence_pipeline import PaperCard
 from stem_sci.agents.runtime import FakeLLMProvider, StructuredGenerator
-import pytest
-
 from stem_sci.agents.writing_pipeline import (
     AtomicClaimGraph,
     AtomicClaimNode,
@@ -13,8 +13,8 @@ from stem_sci.agents.writing_pipeline import (
     WritingSufficiencyStatus,
 )
 from stem_sci.agents.writing_pipeline.validators import validate_claim_graph
-from stem_sci.core.claims import ClaimType
 from stem_sci.context.models import EvidenceRef, SourceLocation, VerificationStatus
+from stem_sci.core.claims import ClaimType
 
 
 def context(*, with_results: bool = True) -> WritingContextBundle:
@@ -138,6 +138,16 @@ def pipeline(fake_responses: list[dict[str, object]]) -> tuple[PaperWritingPipel
     return PaperWritingPipeline(generator=StructuredGenerator(provider), model="gpt-test"), provider
 
 
+class RecordingFakeLLMProvider(FakeLLMProvider):
+    def __init__(self, responses: list[dict[str, object]]) -> None:
+        super().__init__(responses)
+        self.user_prompts: list[str] = []
+
+    def generate_structured(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.user_prompts.append(str(kwargs["user_prompt"]))
+        return super().generate_structured(**kwargs)
+
+
 def test_writing_pipeline_uses_one_claim_graph_for_both_languages() -> None:
     writing, provider = pipeline(responses())
 
@@ -152,6 +162,21 @@ def test_writing_pipeline_uses_one_claim_graph_for_both_languages() -> None:
     assert 0 <= package.critique.score <= 100
     assert len(package.generation_metadata_refs) == 4
     assert provider.call_count == 4
+
+
+def test_writing_pipeline_injects_default_empirical_framework() -> None:
+    provider = RecordingFakeLLMProvider(responses())
+    writing = PaperWritingPipeline(
+        generator=StructuredGenerator(provider),
+        model="gpt-test",
+    )
+
+    writing.run(context(), agent_input())
+
+    joined_prompts = "\n".join(provider.user_prompts)
+    assert "stem_empirical_research_writing_mode_v1" in joined_prompts
+    assert "recommended_article_order" in joined_prompts
+    assert "integration_point_for_mixed_methods" in joined_prompts
 
 
 def test_optional_llm_argument_review_is_merged_without_editing_draft() -> None:

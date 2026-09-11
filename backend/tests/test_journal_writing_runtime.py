@@ -190,3 +190,23 @@ def test_ieee_profile_template_id_is_registered() -> None:
 
     assert result.latex is not None
     assert result.latex.template.template_id == "ieee-journal"
+
+
+def test_empirical_framework_is_loaded_into_writing_constraints() -> None:
+    loader = JournalProfileLoader()
+
+    constraints = loader.resolve_writing_constraints(
+        "International Journal of STEM Education",
+        article_type="Research Article",
+    )
+
+    framework = constraints.style_layers["empirical_framework"]
+    assert framework["framework_id"] == "stem_empirical_research_writing_mode_v1"
+    assert "empirical_framework" in constraints.style_layers["precedence"]
+    assert "abstract" in constraints.section_constraints
+    assert "keep_within_250_words_unless_the_target_journal_says_otherwise" in (
+        constraints.section_constraints["abstract"].emphasis
+    )
+    assert "integration_point_for_mixed_methods" in (
+        constraints.section_constraints["methods"].common_flow
+    )

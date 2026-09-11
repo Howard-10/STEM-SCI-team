@@ -1,0 +1,185 @@
+framework_id: stem_empirical_research_writing_mode_v1
+framework_name: STEM empirical research writing framework
+source_document: STEM empirical research writing mode guide docx
+domain: STEM_education
+applies_to:
+  - empirical_research_article
+  - mixed_methods_research_article
+  - quantitative_research_article
+  - qualitative_research_article
+priority: default_empirical_framework
+
+evidence_policy:
+  - Treat this framework as writing and organization guidance, not as evidence.
+  - Never invent participants, sample sizes, instruments, statistics, citations, findings, or causal claims to satisfy a framework item.
+  - If required information is absent from approved claims, verified evidence, approved protocols, or validated result cards, leave it absent and surface a revision need.
+  - Official target-journal instructions override this framework when they conflict.
+
+recommended_article_order:
+  - Title
+  - Abstract
+  - Keywords
+  - Introduction
+  - Methods
+  - Results
+  - Discussion
+  - Conclusion
+  - References
+
+sections:
+  title:
+    purpose: summarize_the_core_variables_context_and_method
+    common_flow:
+      - independent_variable
+      - dependent_variable
+      - research_context
+      - method_marker_when_relevant
+    emphasis:
+      - keep_title_between_10_and_20_words_when_possible
+      - name_the_research_context_concretely
+      - mark_mixed_methods_in_the_subtitle_when_the_design_is_mixed
+    avoid:
+      - unexplained_abbreviations
+      - overly_broad_context
+      - empty_phrases_such_as_a_study_of
+
+  abstract:
+    purpose: provide_a_compact_problem_method_result_and_conclusion
+    common_flow:
+      - background_or_problem
+      - literature_gap
+      - study_aim
+      - design_sample_and_data_sources
+      - main_quantitative_or_qualitative_findings
+      - conclusion_and_significance
+    emphasis:
+      - keep_within_250_words_unless_the_target_journal_says_otherwise
+      - report_substantive_findings_rather_than_promising_discussion
+      - include_only_numbers_and_results_from_validated_result_cards
+    avoid:
+      - references_or_unexplained_abbreviations
+      - overclaiming
+      - generic_significance_without_findings
+
+  keywords:
+    purpose: support_discovery_with_layered_domain_variable_and_method_terms
+    common_flow:
+      - one_or_two_broad_domain_terms
+      - two_or_three_core_variable_terms
+      - one_method_term
+    emphasis:
+      - use_four_to_six_keywords_when_possible
+      - prefer_standard_discipline_terms
+    avoid:
+      - duplicating_only_title_words
+      - idiosyncratic_unsearchable_terms
+
+  introduction:
+    purpose: move_from_broad_STEM_context_to_specific_research_questions
+    common_flow:
+      - broad_context_and_importance
+      - focused_research_area
+      - objective_gap_or_tension_in_prior_work
+      - embedded_literature_synthesis_and_theoretical_framework
+      - explicit_research_questions
+    emphasis:
+      - define_core_concepts_before_using_them_for_the_argument
+      - explain_whether_the_gap_is_methodological_contextual_or_theoretical
+      - organize_literature_subsections_as_topic_synthesis_critique_and_bridge
+    avoid:
+      - paper_by_paper_literature_listing
+      - vague_gap_claims
+      - concept_drift
+
+  methods:
+    purpose: make_the_study_replicable
+    common_flow:
+      - research_context
+      - sampling_strategy
+      - survey_measures_or_instruments
+      - data_collection_procedures
+      - data_analysis_procedures
+      - integration_point_for_mixed_methods
+    emphasis:
+      - state_inclusion_and_exclusion_criteria_when_available
+      - report_demographic_table_requirements_when_available
+      - describe_measure_sources_reliability_validity_and_adaptation_when_available
+      - describe_observation_or_interview_protocols_and_researcher_reflexivity_when_available
+      - describe_analysis_software_model_choices_coding_strategy_and_intercoder_reliability_when_available
+      - include_ethics_or_IRB_information_when_available
+    avoid:
+      - missing_replicability_details
+      - unclear_sampling_basis
+      - unexplained_measure_adaptation
+
+  results:
+    purpose: answer_research_questions_with_objective_evidence
+    common_flow:
+      - descriptive_statistics_or_data_overview
+      - main_analysis_results
+      - qualitative_themes_or_case_findings_when_applicable
+    emphasis:
+      - keep_interpretation_brief_and_bounded
+      - point_detailed_numbers_to_tables_when_tables_exist
+      - report_confidence_intervals_effect_sizes_or_model_parameters_only_when_validated
+      - for_qualitative_findings_use_theme_evidence_brief_analysis_and_cross_case_comparison
+    avoid:
+      - subjective_explanation_before_evidence
+      - prove_language
+      - extreme_or_identifying_qualitative_quotes
+
+  discussion:
+    purpose: turn_results_into_bounded_knowledge_claims
+    common_flow:
+      - answer_research_questions
+      - compare_with_prior_literature
+      - theoretical_contribution
+      - practical_implications
+      - limitations
+      - future_work
+    emphasis:
+      - explain_agreement_or_disagreement_with_prior_work
+      - state_how_the_study_extends_challenges_or_refines_theory_only_when_supported
+      - make_practical_recommendations_specific_and_operational
+      - pair_each_limitation_with_a_boundary_or_future_direction
+    avoid:
+      - causal_language_without_design_support
+      - overgeneralization
+      - generic_more_attention_is_needed_recommendations
+
+  conclusion:
+    purpose: close_with_the_core_finding_and_take_home_message
+    common_flow:
+      - restate_aim_and_core_finding_without_copying_the_abstract
+      - take_home_message
+      - future_potential
+    emphasis:
+      - keep_the_tone_confident_but_modest
+      - preserve_the_scope_of_the_evidence
+    avoid:
+      - introducing_new_data
+      - introducing_new_literature
+      - overstated_final_claims
+
+  references:
+    purpose: provide_accurate_balanced_and_target_journal_compliant_sources
+    common_flow:
+      - target_journal_citation_style
+      - recent_STEM_education_evidence
+      - classic_theory_sources_when_used
+      - DOI_and_author_name_verification
+    emphasis:
+      - prefer_a_balance_of_classic_theory_and_recent_empirical_work
+      - aim_for_at_least_half_recent_sources_in_STEM_education_when_the_project_scope_allows
+    avoid:
+      - inconsistent_citation_style
+      - excessive_self_citation
+      - uncrosschecked_DOIs_or_author_names
+
+quality_gates:
+  - every_study_specific_sentence_must_trace_to_claim_evidence_protocol_or_result_card
+  - abstract_must_contain_real_findings_or_remain_incomplete
+  - methods_must_be_replicable_or_report_missing_requirements
+  - results_must_not_use_prove_or_create_unvalidated_numbers
+  - discussion_must_include_literature_dialogue_contribution_implication_and_limitations_when_supported
+  - conclusion_must_not_add_new_data_or_new_literature

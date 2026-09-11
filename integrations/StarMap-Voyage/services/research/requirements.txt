@@ -1,0 +1,27 @@
+# Research-Copilot-OS 依赖
+
+# Web 框架
+fastapi>=0.109.0
+uvicorn>=0.25.0
+python-multipart>=0.0.6
+
+# LLM 客户端
+openai>=1.12.0
+
+# PDF 解析
+PyMuPDF>=1.23.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# 可视化
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# 前端
+streamlit>=1.31.0
+
+# 工具
+requests>=2.31.0

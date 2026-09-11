@@ -48,6 +48,54 @@ def _normal(value: str) -> str:
     return re.sub(r"[^\w]+", "", value, flags=re.UNICODE).casefold()
 
 
+_GENERAL_WRITING_PATTERNS_FILE = "STEM_general_writing_patterns.yaml"
+_EMPIRICAL_FRAMEWORK_FILE = "STEM_empirical_research_framework.yaml"
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item.strip()]
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    return list(dict.fromkeys(items))
+
+
+def _framework_section_constraints(
+    framework: dict[str, object],
+) -> dict[str, SectionWritingConstraint]:
+    sections = framework.get("sections")
+    if not isinstance(sections, dict):
+        return {}
+    constraints: dict[str, SectionWritingConstraint] = {}
+    for raw_key, raw_value in sections.items():
+        if not isinstance(raw_key, str) or not isinstance(raw_value, dict):
+            continue
+        purpose = raw_value.get("purpose")
+        constraints[raw_key] = SectionWritingConstraint(
+            purpose=purpose if isinstance(purpose, str) and purpose.strip() else None,
+            common_flow=_string_list(raw_value.get("common_flow")),
+            emphasis=_string_list(raw_value.get("emphasis")),
+            avoid=_string_list(raw_value.get("avoid")),
+        )
+    return constraints
+
+
+def _merge_section_constraint(
+    existing: SectionWritingConstraint | None,
+    framework: SectionWritingConstraint,
+) -> SectionWritingConstraint:
+    if existing is None:
+        return framework
+    return SectionWritingConstraint(
+        purpose=existing.purpose or framework.purpose,
+        common_flow=_dedupe([*existing.common_flow, *framework.common_flow]),
+        emphasis=_dedupe([*existing.emphasis, *framework.emphasis]),
+        avoid=_dedupe([*existing.avoid, *framework.avoid]),
+    )
+
+
 class JournalProfileLoader:
     """Load profiles by canonical name, configured alias, or YAML filename."""
 
@@ -247,10 +295,22 @@ class JournalProfileLoader:
                 return self._json_safe(raw)
         return None
 
+    def _empirical_framework_resource(self) -> Any:
+        root = self._workspace_style_root()
+        if root is not None:
+            candidate = root / "patterns" / "general" / _EMPIRICAL_FRAMEWORK_FILE
+            if candidate.is_file():
+                return candidate
+        return self._patterns_dir() / _EMPIRICAL_FRAMEWORK_FILE
+
+    def load_empirical_framework(self) -> dict[str, object]:
+        return self._json_safe(self._read_yaml(self._empirical_framework_resource()))
+
     def resolve_style_layers(self, target_journal: str, methodology: str | None = None) -> dict[str, Any]:
         root = self._workspace_style_root()
         warnings: list[str] = []
         general: dict[str, object] = {}
+        empirical_framework = self.load_empirical_framework()
         journal_pattern: dict[str, object] = {}
         methodology_pattern: dict[str, object] = {}
         if root is not None:
@@ -269,8 +329,15 @@ class JournalProfileLoader:
                 warnings.append("methodology was not provided; methodology pattern was not applied")
         official = self._matching_workspace_yaml("journals", target_journal) or {}
         return {
-            "precedence": ["official_journal_rules", "journal_pattern", "methodology_pattern", "general_pattern"],
+            "precedence": [
+                "official_journal_rules",
+                "empirical_framework",
+                "journal_pattern",
+                "methodology_pattern",
+                "general_pattern",
+            ],
             "official_journal_rules": official,
+            "empirical_framework": empirical_framework,
             "journal_pattern": journal_pattern,
             "methodology_pattern": methodology_pattern,
             "general_pattern": general,
@@ -278,15 +345,9 @@ class JournalProfileLoader:
         }
 
     def load_writing_patterns(self) -> WritingPatterns:
-        resources = [
-            item
-            for item in self._patterns_dir().iterdir()
-            if item.is_file() and item.name.casefold().split(".")[-1] in {"yaml", "yml"}
-        ]
-        if len(resources) != 1:
-            raise JournalConfigError("exactly one general writing-pattern YAML is required")
+        resource = self._patterns_dir() / _GENERAL_WRITING_PATTERNS_FILE
         try:
-            return WritingPatterns.model_validate(self._read_yaml(resources[0]))
+            return WritingPatterns.model_validate(self._read_yaml(resource))
         except ValidationError as error:
             raise JournalConfigError(f"invalid writing patterns: {error}") from error
 
@@ -311,6 +372,11 @@ class JournalProfileLoader:
                 emphasis=journal_style.emphasis if journal_style else [],
                 avoid=pattern.avoid if pattern else [],
             )
+        empirical_framework = self.load_empirical_framework()
+        for key, framework_constraint in _framework_section_constraints(
+            empirical_framework
+        ).items():
+            merged[key] = _merge_section_constraint(merged.get(key), framework_constraint)
         if section is not None:
             section_key = _normal(section)
             merged = {key: value for key, value in merged.items() if _normal(key) == section_key}
@@ -361,6 +427,10 @@ def load_journal_profile(target_journal: str) -> JournalProfile:
 
 def load_writing_patterns() -> WritingPatterns:
     return _DEFAULT_LOADER.load_writing_patterns()
+
+
+def load_empirical_framework() -> dict[str, object]:
+    return _DEFAULT_LOADER.load_empirical_framework()
 
 
 def resolve_writing_constraints(
