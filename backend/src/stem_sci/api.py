@@ -76,6 +76,7 @@ from .context.models import (
     EvidenceSearchResult,
     SourceChunk,
     SourceDocument,
+    VerificationStatus,
 )
 from .context.provider import HybridContextProvider, LocalContextProvider
 from .context.service import ContextInputError, ContextNotFoundError, ContextService
@@ -489,6 +490,7 @@ def _conversation_prefers_discussion(message: str) -> bool:
         "先看看现有", "先梳理", "先分析一下可行性", "先讨论", "只讨论", "先了解",
         "暂不分析", "不要正式分析", "不开始正式分析", "先做资料理解",
         "不生成研究方案", "不要生成研究方案", "help me understand first", "do not start yet",
+        "不要检索", "不要搜索", "不要找证据", "先不要找证据", "只讨论证据",
         # Information requests are not consent to advance a workflow. These
         # markers cover the common case where a researcher asks what to
         # upload or how a field will be audited while a task is active.
@@ -536,6 +538,25 @@ def _auto_requests_workflow(message: str, state: ControlState) -> bool:
         _cn(0x5F00, 0x5C55, 0x7814, 0x7A76),
     )
     if any(term in normalized for term in start_research_terms) and _cn(0x68C0, 0x7D22) in normalized:
+        return True
+    research_design_actions = (
+        "\u786e\u5b9a\u7814\u7a76\u95ee\u9898",
+        "\u786e\u5b9a\u7814\u7a76\u65b9\u6848",
+        "\u7814\u7a76\u95ee\u9898\u4e0e\u65b9\u6848",
+        "\u5f62\u6210\u7814\u7a76\u8bbe\u8ba1",
+        "\u5236\u5b9a\u7814\u7a76\u65b9\u6848",
+        "\u751f\u6210\u7814\u7a76\u95ee\u9898",
+    )
+    evidence_retrieval_actions = (
+        "\u627e\u8bc1\u636e",
+        "\u67e5\u627e\u8bc1\u636e",
+        "\u5bfb\u627e\u8bc1\u636e",
+        "\u5217\u51fa\u539f\u6587\u8bc1\u636e",
+        "\u5019\u9009\u8bc1\u636e",
+        "\u641c\u7d22\u8bc1\u636e",
+        "\u67e5\u6587\u732e",
+    )
+    if any(term in normalized for term in (*research_design_actions, *evidence_retrieval_actions)):
         return True
     if any(term in normalized for term in (_CN_INTENT["search"], _CN_INTENT["start_search"], _CN_INTENT["evidence_enough"], _CN_INTENT["continue"], _CN_INTENT["freeze"], _CN_INTENT["execute"], _CN_INTENT["generate_code"], "start search", "search directly", "evidence sufficient", "continue", "freeze", "execute analysis", "generate analysis code", "revise", "confirm", "approve", "confirm brief")):
         return True
@@ -957,7 +978,8 @@ def _checkpoint_message_for_project(project_id: str, checkpoint: str | None) -> 
                     f"  易混淆：{conflict_map.get(theme_key, '待检查')}；边界核对已列入复核，当前可信度：待复核"
                 )
             return (
-                f"我从当前审阅包独立提出 {len(items)} 个可回链候选。证据等级：\n"
+                f"已整理 {len(items)} 个理论驱动/关键词辅助 Codebook 候选；"
+                "没有任何一个来自已执行聚类。\n"
                 "这些是透明关键词辅助线索，不是聚类结果，也不是冻结主题。\n\n"
                 + "\n".join(evidence_lines)
                 + "\n\n口径：命中数允许重叠，不是正式主题频数；下一步优先用边界句和反例检验定义。"
@@ -4802,7 +4824,7 @@ def _cgt_analysis_instruction_response(project_id: str, message: str) -> str | N
 
     if method_boundary_request:
         return (
-            "我建议采用“开放模式发现—证据回链与定义修订—冻结标签后的独立确认”三阶段路线。"
+            "这条路线适合。我建议采用“开放模式发现—证据回链与定义修订—冻结标签后的独立确认”三阶段路线。"
             "第一阶段由算法扩大阅读规模但只产生中性候选；第二阶段根据代表句、边界句和反例形成操作性定义；"
             "第三阶段才检验候选能否稳定覆盖全语料。这样既避免纯词频丢失语义，也避免先定主题再让模型证明。"
             "句子用于编码，学生用于聚合和推断；下一步先审计原始文本，确认这两个单位能否可靠连接。"
@@ -7880,6 +7902,133 @@ def _build_evidence_review_package(
     }
 
 
+def _legacy_project_evidence_context(
+    project_id: str, research_scope: str
+) -> ContextBundle:
+    """Expose older project uploads as a read-only candidate context.
+
+    This compatibility projection deliberately accepts every verification
+    state for review. It does not promote or mutate any source record.
+    """
+
+    return service.build(
+        ContextBuildRequest(
+            project_id=project_id,
+            task_ref=f"legacy:{project_id}:evidence-review",
+            query=research_scope or "当前研究主题",
+            token_budget=8_000,
+            max_chunks_per_source=3,
+            allow_discovery_fallback=True,
+            allowed_verification_statuses=list(VerificationStatus),
+        )
+    )
+
+
+def _legacy_qa_turns(project_id: str) -> list[dict[str, object]]:
+    """Read ordinary QA turns for legacy workbench presentation."""
+
+    try:
+        turns: list[dict[str, object]] = []
+        for conversation in qa_service.list_conversations(project_id, limit=50):
+            for turn in qa_service.conversation_turns(
+                project_id, conversation.conversation_id, limit=100
+            ):
+                turns.append(turn.model_dump(mode="json"))
+        return sorted(turns, key=lambda item: str(item.get("created_at") or ""))
+    except Exception as error:  # noqa: BLE001 - compatibility is best effort
+        logger.warning("Could not read legacy QA turns for %s: %s", project_id, error)
+        return []
+
+
+def _legacy_workflow_artifacts(project_id: str) -> list[ArtifactContent]:
+    """Project useful legacy dialogue into clearly provisional work cards."""
+
+    existing_types = {
+        item.artifact_type for item in artifact_content_store.list_project(project_id)
+    }
+    relevant = [
+        item
+        for item in _legacy_qa_turns(project_id)
+        if any(
+            term in str(item.get("question") or "").lower()
+            for term in (
+                "研究问题",
+                "研究方案",
+                "研究设计",
+                "研究对象",
+                "研究方法",
+                "研究边界",
+                "研究场景",
+                "确定研究",
+                "方案",
+            )
+        )
+    ]
+    if not relevant:
+        return []
+    excerpts = [
+        {
+            "question": str(item.get("question") or "").strip(),
+            "answer": str(item.get("answer") or "").strip()[:1200],
+            "created_at": item.get("created_at"),
+        }
+        for item in relevant[-6:]
+    ]
+    common = {
+        "project_id": project_id,
+        "status": "LEGACY_CANDIDATE_REQUIRES_CONFIRMATION",
+        "provenance": {
+            "source": "ordinary_qa_history",
+            "read_only": True,
+            "note": "这是旧项目的历史候选，不等同于已批准的研究内容。",
+        },
+        "conversation_excerpts": excerpts,
+    }
+    projected: list[ArtifactContent] = []
+    if "ResearchQuestionTree" not in existing_types:
+        projected.append(
+            ArtifactContent(
+                project_id=project_id,
+                artifact_id=f"legacy-projection:{project_id}:research-question",
+                version=1,
+                artifact_type="ResearchQuestionTree",
+                schema_version="legacy-projection-v1",
+                body={
+                    **common,
+                    "title": "历史对话中的研究问题候选",
+                    "primary_question": "请确认研究对象、场景、方法、发现与边界。",
+                    "research_questions": [
+                        "研究对象与场景是什么？",
+                        "拟采用什么研究方法？",
+                        "哪些判断需要证据支持？",
+                        "结论边界应如何限定？",
+                    ],
+                },
+            )
+        )
+    if "StudyProtocolCandidate" not in existing_types:
+        projected.append(
+            ArtifactContent(
+                project_id=project_id,
+                artifact_id=f"legacy-projection:{project_id}:study-protocol",
+                version=1,
+                artifact_type="StudyProtocolCandidate",
+                schema_version="legacy-projection-v1",
+                body={
+                    **common,
+                    "title": "历史对话中的研究方案候选",
+                    "design_type": "待从历史对话确认",
+                    "primary_outcome": "待研究者确认",
+                    "sampling_approach": "待研究者确认研究对象与纳入边界",
+                    "variables": ["研究对象", "研究场景", "研究方法", "研究发现", "解释边界"],
+                    "analysis_plan": "历史对话仅作为候选输入，确认后再形成可执行计划。",
+                    "hypotheses": [],
+                },
+            )
+        )
+    return projected
+
+
 def _research_brief_fields(
     project: ResearchProject,
     route: str,
@@ -8719,13 +8868,37 @@ def project_evidence_review_package(
 ) -> dict[str, object]:
     """Return the latest human-readable evidence package for the project."""
 
-    identity_service.get_project(user, project_id)
+    project = identity_service.get_project(user, project_id)
     packages = [
         item for item in artifact_content_store.list_project(project_id)
         if item.artifact_type == "EvidenceReviewPackage"
     ]
     if not packages:
-        raise HTTPException(status_code=404, detail="evidence review package was not found")
+        has_legacy_material = bool(service.list_sources(project_id)) or bool(
+            _legacy_qa_turns(project_id)
+        )
+        if not has_legacy_material:
+            raise HTTPException(status_code=404, detail="evidence review package was not found")
+        scope = _canonical_research_scope(project.research_direction)
+        body = _build_evidence_review_package(
+            project_id,
+            scope,
+            [],
+            context_bundle=_legacy_project_evidence_context(project_id, scope),
+        )
+        body["legacy_projection"] = True
+        body["legacy_projection_note"] = (
+            "这是旧项目的只读候选包；来源仍需人工核验后才能进入正式证据库。"
+        )
+        content = ArtifactContent(
+            project_id=project_id,
+            artifact_id=f"legacy-projection:{project_id}:evidence-review",
+            version=1,
+            artifact_type="EvidenceReviewPackage",
+            schema_version="legacy-projection-v1",
+            body=body,
+        )
+        return content.model_dump(mode="json")
     # Artifact ids are random and their lexical order is unrelated to time.
     # Always return the newest immutable package revision. Older packages
     # were written before retrieval trace de-duplication was added, so clean
@@ -11695,7 +11868,8 @@ def workflow_artifacts(project_id: str) -> list[ArtifactRef]:
 
 @app.get("/api/v1/workflow/projects/{project_id}/artifact-contents")
 def workflow_artifact_contents(project_id: str) -> list[ArtifactContent]:
-    return artifact_content_store.list_project(project_id)
+    contents = artifact_content_store.list_project(project_id)
+    return [*contents, *_legacy_workflow_artifacts(project_id)]
 
 
 @app.get("/api/v1/workflow/projects/{project_id}/agent-runs")

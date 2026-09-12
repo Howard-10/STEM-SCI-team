@@ -126,6 +126,9 @@ class HybridContextProvider:
             "query": query,
             "evidence_ids": [item.evidence_id for item in selected],
         }
+        merged_risk_flags = set([*local.risk_flags, *shared.risk_flags])
+        if selected:
+            merged_risk_flags.discard("insufficient_verified_evidence")
         bundle = ContextBundle(
             context_id=f"ctx_{uuid4().hex}",
             project_id=project_id,
@@ -134,7 +137,7 @@ class HybridContextProvider:
             evidence_refs=selected,
             source_refs=sorted({item.source_id for item in selected}),
             unresolved_questions=([] if selected else ["No eligible traceable evidence matched the request"]),
-            risk_flags=sorted(set([*local.risk_flags, *shared.risk_flags])),
+            risk_flags=sorted(merged_risk_flags),
             verification_summary={
                 status.value: sum(item.verification_status is status for item in selected)
                 for status in VerificationStatus
