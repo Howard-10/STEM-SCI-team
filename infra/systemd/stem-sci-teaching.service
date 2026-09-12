@@ -1,0 +1,16 @@
+[Unit]
+Description=STEM-SCI teaching API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/stem-sci/STEM-SCI-repo/integrations/StarMap-Voyage/services/teaching/backend
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/stem-sci/teaching.env
+ExecStart=/opt/stem-sci/venv-starmap/bin/python api_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

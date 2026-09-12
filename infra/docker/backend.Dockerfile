@@ -12,6 +12,7 @@ COPY backend/pyproject.toml backend/README.md ./
 COPY backend/src ./src
 COPY data/catalogs ./../data/catalogs
 COPY data/derived ./../data/derived
+COPY data/structured ./../data/structured
 
 RUN python -m pip install --no-cache-dir ".[hybrid-retrieval]"
 

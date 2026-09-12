@@ -5,21 +5,33 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
 }
 
+function ensureTrailingSlash(value: string): string {
+  return `${value.replace(/\/+$/, '')}/`
+}
+
+const productionDefault = (productionPath: string, developmentUrl: string): string =>
+  import.meta.env.PROD ? productionPath : developmentUrl
+
 // 教学设计 / 文献阅读 AI 后端（原「星图学航2.0」FastAPI 服务）
 // 承载：/api/projects、/api/generate-plan、/api/literature/*、/api/experiment/*、/api/bridge/*、/api/progress/* 等
 export const TEACHING_API_BASE = trimTrailingSlash(
-  import.meta.env.VITE_TEACHING_API_URL || 'http://127.0.0.1:8002',
+  import.meta.env.VITE_TEACHING_API_URL ||
+    productionDefault('/teaching-api', 'http://127.0.0.1:8002'),
 )
 
 // 科研实验平台（原「Research-Copilot-OS」Streamlit 前端）
 export const RESEARCH_STREAMLIT_URL = trimTrailingSlash(
-  import.meta.env.VITE_RESEARCH_STREAMLIT_URL || 'http://127.0.0.1:8501',
+  import.meta.env.VITE_RESEARCH_STREAMLIT_URL ||
+    productionDefault('/research-ui/', 'http://127.0.0.1:8501'),
 )
 
 // 课程案例模块（原「星图学航」自适应 STEM 学习路径服务）
-export const COURSE_CASES_URL = trimTrailingSlash(
-  import.meta.env.VITE_COURSE_CASE_URL || 'http://127.0.0.1:8800/app/',
+export const COURSE_CASES_URL = ensureTrailingSlash(
+  import.meta.env.VITE_COURSE_CASE_URL ||
+    productionDefault('/course-cases/app/', 'http://127.0.0.1:8800/app/'),
 )
 
 // 文献阅读 AI 的 HTTP provider 基础地址（复用教学后端；mock 模式下不使用）
-export const AI_API_BASE = trimTrailingSlash(import.meta.env.VITE_API_BASE_URL || '')
+export const AI_API_BASE = trimTrailingSlash(
+  import.meta.env.VITE_API_BASE_URL || productionDefault('/teaching-api', ''),
+)

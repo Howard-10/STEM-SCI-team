@@ -109,7 +109,7 @@ _INCOMPLETE_PLAN_MARKERS = (
 
 def _safe_retrieve_fewshot(query: str, top_k: int = 2) -> List[str]:
     """Use local examples when available, but never block generation on RAG."""
-    if not os.environ.get("SILICONFLOW_API_KEY", "").strip():
+    if not (os.environ.get("SILICONFLOW_API_KEY", "").strip() or os.environ.get("DASHSCOPE_API_KEY", "").strip()):
         return []
     try:
         return retrieve_fewshot_examples(query, top_k)
@@ -120,7 +120,7 @@ def _safe_retrieve_fewshot(query: str, top_k: int = 2) -> List[str]:
 
 def _safe_retrieve_sections(query: str, top_k: int = 4):
     """Use section retrieval opportunistically; model generation remains the source of truth."""
-    if not os.environ.get("SILICONFLOW_API_KEY", "").strip():
+    if not (os.environ.get("SILICONFLOW_API_KEY", "").strip() or os.environ.get("DASHSCOPE_API_KEY", "").strip()):
         return []
     try:
         return retrieve_relevant_sections(query, top_k)
@@ -354,6 +354,9 @@ def generate_teaching_plan(
 
     # Step 6: Parse and structure the result
     result = _parse_plan(plan_markdown, user_query, grade_level)
+    # The user's resource choice is authoritative. A lesson may discuss a
+    # three-dimensional model without requesting printable assets.
+    result["has_3d_print"] = bool(include_3d_print)
 
     result["quality"] = quality
     result["revision_attempted"] = revision_attempted

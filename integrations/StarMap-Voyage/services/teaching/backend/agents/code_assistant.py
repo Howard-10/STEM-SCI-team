@@ -11,11 +11,13 @@ from typing import Dict, List, Optional
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from agents.llm_config import resolve_chat_config
 
 # ---- Config ----
-LLM_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
-LLM_MODEL = "deepseek-ai/DeepSeek-V3"
-API_KEY = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+_LLM_CONFIG = resolve_chat_config()
+LLM_API_URL = _LLM_CONFIG["url"]
+LLM_MODEL = _LLM_CONFIG["model"]
+API_KEY = _LLM_CONFIG["api_key"]
 
 # ---- System Prompts ----
 EXPLAIN_PROMPT = """你是一位耐心的编程教师，正在帮助一位STEM学生理解代码。
@@ -136,7 +138,7 @@ class CodeAssistant:
 
     def _call_llm(self, system_prompt: str, user_message: str,
                   max_tokens: int, messages_override: List = None) -> str:
-        """Call DeepSeek V3 via SiliconFlow."""
+        """Call the configured OpenAI-compatible teaching model."""
         if messages_override:
             messages = [{"role": "system", "content": system_prompt}] + messages_override
         else:

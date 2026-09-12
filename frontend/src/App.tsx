@@ -78,8 +78,16 @@ type ChatAttachment = {
 type OrchestrationArtifactContent = {
   artifact_id: string;
   artifact_type: string;
+  version: number;
   body: Record<string, unknown>;
   created_at: string;
+};
+
+type ManuscriptFigureEntry = {
+  figure_number: number;
+  caption: string;
+  url: string;
+  alt_text: string;
 };
 
 type ConversationalHistoryEntry = {
@@ -139,6 +147,8 @@ const demoProjectId = import.meta.env.VITE_PROJECT_ID && import.meta.env.VITE_PR
   ? import.meta.env.VITE_PROJECT_ID
   : "physics-ai-demo";
 const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
+const starMapWebUrl = import.meta.env.VITE_STARMAP_WEB_URL
+  || (import.meta.env.DEV ? "http://127.0.0.1:5178" : "/teaching/");
 // Agent selection and planning are internal implementation details.  The
 // researcher drives the workflow through the conversation; structured results
 // remain available in the right-hand research output pane.
@@ -168,6 +178,79 @@ function cleanResearchPresentation(value: string): string {
     .replace(/\b(?:shared_evd|evd|ctx|src)_[A-Za-z0-9_-]+\b/gi, "相关证据片段")
     .replace(/\b(?:task|plan|run)_[A-Za-z0-9_-]+\b/gi, "研究记录")
     .replace(/当前全文资源尚未挂载/g, "当前正式全文索引尚未完成");
+}
+
+const manuscriptSectionLabels: Record<string, string> = {
+  title: "标题",
+  abstract: "摘要",
+  keywords: "关键词",
+  introduction: "引言",
+  evidence_review: "证据综述",
+  theoretical_framework: "理论框架",
+  research_questions: "研究问题",
+  methods: "方法",
+  analysis_plan: "分析方案",
+  statistical_analysis: "统计分析与稳健性检查",
+  results: "结果",
+  results_table: "结果表",
+  discussion: "讨论",
+  conclusion: "结论",
+  expected_contribution: "预期贡献",
+  reproducibility: "可复现性与审查链",
+  ethics_limitations: "伦理与局限",
+  limitations: "局限",
+  references: "参考文献",
+  subtitle_and_notice: "副标题与数据说明",
+  appendix_a: "附录 A 无 AI 独立迁移评分量规",
+  supplement_s1: "补充材料 S1 审计字段",
+  supplement_s2: "补充材料 S2 模拟数据生成规范",
+  body: "正文",
+  full_text: "正文",
+};
+
+const manuscriptSectionOrder = Object.keys(manuscriptSectionLabels);
+
+function manuscriptSectionEntries(body: Record<string, unknown> | null) {
+  if (!body) return [];
+  const sections = asRecord(body.sections) ?? {};
+  const sectionKeys = [
+    ...manuscriptSectionOrder,
+    ...Object.keys(sections).filter((key) => !manuscriptSectionOrder.includes(key)),
+  ];
+  const seen = new Set<string>();
+  const entries = sectionKeys.flatMap((key) => {
+    const text = asText(sections[key]);
+    if (!text || seen.has(text.trim())) return [];
+    seen.add(text.trim());
+    return [{
+      key,
+      label: manuscriptSectionLabels[key] ?? key.replaceAll("_", " "),
+      text,
+    }];
+  });
+  const fullText = asText(body.full_text);
+  if (fullText && entries.length === 0 && !seen.has(fullText.trim())) {
+    entries.push({ key: "full_text", label: manuscriptSectionLabels.full_text, text: fullText });
+  }
+  return entries;
+}
+
+function statisticalResultLabel(key: string): string {
+  const labels: Record<string, string> = {
+    participants_total: "学生总数",
+    teams_total: "团队总数",
+    complete_cases: "完整案例",
+    adjusted_mean_difference: "调整后均值差",
+    confidence_interval_lower: "95% CI 下限",
+    confidence_interval_upper: "95% CI 上限",
+    cr2_p_value: "CR2 p 值",
+    wild_cluster_bootstrap_p_value: "Wild bootstrap p 值",
+    paired_randomization_p_value: "配对随机化 p 值",
+    interrater_icc_2_k: "评分者 ICC(2,k)",
+    sensitivity_effect_lower: "缺失敏感性下界",
+    sensitivity_effect_upper: "缺失敏感性上界",
+  };
+  return labels[key] ?? key.replaceAll("_", " ");
 }
 
 function runtimeReasonLabel(value: string | null | undefined, fallback: string): string {
@@ -893,6 +976,7 @@ export function App() {
   const latestStudyProtocol = latestArtifact("StudyProtocolCandidate");
   const latestDataAudit = latestArtifact("DataAuditCandidate");
   const codeWorkbenchArtifactTypes = new Set([
+    "CodeSpecificationDraft",
     "AnalysisCodePlanCandidate",
     "PhysicsCodeValidationCandidate",
     "CodeReviewCandidate",
@@ -906,6 +990,7 @@ export function App() {
     "StatisticalResultCard",
   ]);
   const codeWorkbenchArtifactLabels: Record<string, string> = {
+    CodeSpecificationDraft: "Python 分析代码",
     AnalysisCodePlanCandidate: "分析代码计划",
     PhysicsCodeValidationCandidate: "物理代码校验",
     CodeReviewCandidate: "代码审查",
@@ -918,14 +1003,51 @@ export function App() {
     UncertaintyGateCandidate: "不确定性边界",
     StatisticalResultCard: "统计结果卡片",
   };
-  const codeWorkbenchArtifacts = orchestrationArtifacts.filter((item) =>
-    codeWorkbenchArtifactTypes.has(item.artifact_type),
-  );
+  const codeWorkbenchArtifacts = Array.from(new Map(
+    orchestrationArtifacts
+      .filter((item) => codeWorkbenchArtifactTypes.has(item.artifact_type))
+      .map((item) => [item.artifact_id, item]),
+  ).values());
   const latestManuscriptArtifact = [...orchestrationArtifacts]
     .reverse()
     .find((item) => item.artifact_type === "ManuscriptDraftZh" || item.artifact_type === "ManuscriptOutline") ?? null;
-  const latestManuscriptSections = asRecord(latestManuscriptArtifact?.body.sections);
-  const latestManuscriptTitle = asText(latestManuscriptSections?.title) ?? "候选论文草稿";
+  const isShowcaseDemoProject = auth?.user.email === "2594606621@qq.com"
+    && projectId === "project-7f9bd1491c364356";
+  const latestStatisticalResultArtifact = latestArtifact("StatisticalResultCard");
+  const demoArtifactStatisticalResultCard: DataPipelineState["statistical_result_card"] = (() => {
+    if (!isShowcaseDemoProject || latestStatisticalResultArtifact?.body.simulated_data !== true) return null;
+    const valuesBody = asRecord(latestStatisticalResultArtifact.body.values);
+    const resultId = asText(latestStatisticalResultArtifact.body.result_id);
+    const executionStatus = asText(latestStatisticalResultArtifact.body.execution_status);
+    if (!valuesBody || !resultId || !executionStatus) return null;
+    const values = Object.fromEntries(
+      Object.entries(valuesBody).filter((entry): entry is [string, number] => typeof entry[1] === "number"),
+    );
+    if (!Object.keys(values).length) return null;
+    return { result_id: resultId, execution_status: executionStatus, values };
+  })();
+  const effectiveStatisticalResultCard = analysisState?.statistical_result_card
+    ?? demoArtifactStatisticalResultCard;
+  const usesShowcaseResultFallback = !analysisState?.statistical_result_card
+    && demoArtifactStatisticalResultCard !== null;
+  const manuscriptFigureManifest: ManuscriptFigureEntry[] = (
+    Array.isArray(latestManuscriptArtifact?.body.figure_manifest)
+      ? latestManuscriptArtifact.body.figure_manifest
+      : []
+  ).flatMap((item) => {
+    const record = asRecord(item);
+    const figureNumber = Number(record?.figure_number);
+    const caption = asText(record?.caption);
+    const url = asText(record?.url);
+    const altText = asText(record?.alt_text);
+    return Number.isFinite(figureNumber) && caption && url
+      ? [{ figure_number: figureNumber, caption, url, alt_text: altText || caption }]
+      : [];
+  });
+  const latestManuscriptSectionEntries = manuscriptSectionEntries(latestManuscriptArtifact?.body ?? null);
+  const latestManuscriptTitle = latestManuscriptSectionEntries.find((section) => section.key === "title")?.text
+    ?? asText(latestManuscriptArtifact?.body.title)
+    ?? "候选论文草稿";
   const dataAuditDetails = asRecord(latestDataAudit?.body.data_audit);
   const dataManifest = asRecord(latestDataAudit?.body.data_manifest);
   const auditColumns = Array.isArray(dataManifest?.header)
@@ -1066,9 +1188,10 @@ export function App() {
     ...agentOutputs.filter((output) => (
       output.agent_id === "paper_writing"
       && output.output_previews.some((preview) => ["ManuscriptDraftZh", "ManuscriptOutline"].includes(preview.artifact_type))
+      && !output.output_previews.some((preview) => preview.artifact_id === latestManuscriptArtifact?.artifact_id)
     )).map((output) => ({
       id: output.task_id,
-      kind: "manuscript" as const,
+      kind: "candidate" as const,
       title: (() => {
         const preview = output.output_previews.find((item) => item.artifact_type === "ManuscriptDraftZh")
           ?? output.output_previews.find((item) => item.artifact_type === "ManuscriptOutline");
@@ -1253,6 +1376,7 @@ export function App() {
       return;
     }
     let mounted = true;
+    let lastEvidenceRevision: number | null = null;
     const syncControlState = async () => {
       try {
         const latestState = await workflowApi.getControlState(projectId);
@@ -1290,28 +1414,31 @@ export function App() {
           .catch(() => {
             if (mounted) setProjectClaims([]);
           });
-        void workflowApi.getEvidenceReviewPackage(projectId)
-          .then((reviewPackage) => {
-            if (!mounted) return;
-            setEvidenceReviewPackage(reviewPackage);
-            const activeStream = latestState.workstreams.find(
-              (item) => item.workstream_id === latestState.active_workstream_id,
-            );
-            if (latestState.active_gate_id && activeStream?.current_action === "claim_evidence_support") {
-              setContextTab("agent-work");
-            }
-            // A reload used to return to the generic knowledge-library tab,
-            // which made an active research project appear to have no evidence
-            // even when its review package had already been created.  Preserve
-            // an explicit user tab choice, but make the generated evidence
-            // package the initial right-side workspace for an active workflow.
-            if (latestState.active_gate_id) {
-              setContextTab((current) => current === "evidence" ? "agent-work" : current);
-            }
-          })
-          .catch(() => {
-            if (mounted) setEvidenceReviewPackage(null);
-          });
+        if (lastEvidenceRevision !== latestState.state_revision) {
+          lastEvidenceRevision = latestState.state_revision;
+          void workflowApi.getEvidenceReviewPackage(projectId)
+            .then((reviewPackage) => {
+              if (!mounted) return;
+              setEvidenceReviewPackage(reviewPackage);
+              const activeStream = latestState.workstreams.find(
+                (item) => item.workstream_id === latestState.active_workstream_id,
+              );
+              if (latestState.active_gate_id && activeStream?.current_action === "claim_evidence_support") {
+                setContextTab("agent-work");
+              }
+              // A reload used to return to the generic knowledge-library tab,
+              // which made an active research project appear to have no evidence
+              // even when its review package had already been created.  Preserve
+              // an explicit user tab choice, but make the generated evidence
+              // package the initial right-side workspace for an active workflow.
+              if (latestState.active_gate_id) {
+                setContextTab((current) => current === "evidence" ? "agent-work" : current);
+              }
+            })
+            .catch(() => {
+              if (mounted) setEvidenceReviewPackage(null);
+            });
+        }
         void workflowApi.listArtifactContents(projectId)
           .then((items) => {
             if (mounted) setOrchestrationArtifacts(items as OrchestrationArtifactContent[]);
@@ -1767,11 +1894,11 @@ export function App() {
       await searchProjectEvidence();
       if (auth?.access_token) {
         const [reviewPackage, formal] = await Promise.all([
-          workflowApi.getEvidenceReviewPackage(projectId),
-          workflowApi.listFormalEvidence(projectId),
+          workflowApi.getEvidenceReviewPackage(projectId).catch(() => null),
+          workflowApi.listFormalEvidence(projectId).catch(() => null),
         ]);
         setEvidenceReviewPackage(reviewPackage);
-        setFormalEvidence(formal);
+        if (formal) setFormalEvidence(formal);
       }
     } catch (error) {
       setEvidenceError(error instanceof Error ? error.message : "证据来源上传失败");
@@ -2154,9 +2281,7 @@ export function App() {
         if (createdDocument) await openDocument(createdDocument);
       }
       setAgentOutputDecisions((current) => ({ ...current, [output.task_id]: "applied" }));
-      setView("knowledge");
-      setContextTab("evidence");
-      setRightPaneVisible(true);
+      openDedicatedWorkbench("paper", "paper-review");
     } catch (error) {
       const message = error instanceof Error ? error.message : "论文草稿写入失败";
       setAgentPlanError(message);
@@ -2705,7 +2830,7 @@ export function App() {
       id: "review" as const,
       title: "最终审查",
       tone: "slate",
-      count: projectClaims.length + formalEvidence.length + Number(Boolean(analysisState?.statistical_result_card)),
+      count: projectClaims.length + formalEvidence.length + Number(Boolean(effectiveStatisticalResultCard)),
       summary: "集中检查研究问题、证据引用、数据版本、统计结果、结论边界和伦理治理。",
       workbench: "final-review" as const,
       action: "查看审查内容",
@@ -2777,7 +2902,7 @@ export function App() {
             <>
               <div className="workbench-preview-stat-row">
                 <div><span>代码产物</span><strong>{codeWorkbenchArtifacts.length}</strong></div>
-                <div><span>执行结果</span><strong>{analysisState?.statistical_result_card ? "已有" : "待生成"}</strong></div>
+                <div><span>执行结果</span><strong>{effectiveStatisticalResultCard ? "已有" : "待生成"}</strong></div>
                 <div><span>物理校验</span><strong>{physicsReport?.passed ? "通过" : "待检查"}</strong></div>
               </div>
               <p className="workbench-preview-summary">{codeWorkbenchArtifacts.length ? "代码候选已进入审核区，可展开查看、编辑并统一通过。" : "代码候选生成后会在这里显示。"}</p>
@@ -2790,7 +2915,7 @@ export function App() {
                 <div><span>项目草稿</span><strong>{draftDocuments.length}</strong></div>
                 <div><span>主张</span><strong>{projectClaims.length}</strong></div>
               </div>
-              {latestManuscriptSections ? renderManuscriptSectionPreview() : <p className="workbench-preview-summary">候选论文生成后，正文、引用核验和 LaTeX 操作会显示在这里。</p>}
+              {latestManuscriptSectionEntries.length ? renderManuscriptSectionPreview() : <p className="workbench-preview-summary">候选论文生成后，正文、引用核验和 LaTeX 操作会显示在这里。</p>}
             </>
           )}
           {selectedOutputSection === "review" && (
@@ -2826,29 +2951,14 @@ export function App() {
   );
 
   const renderManuscriptSectionPreview = () => {
-    if (!latestManuscriptSections) return null;
-    const sections = [
-      ["title", "标题"],
-      ["abstract", "摘要"],
-      ["introduction", "引言"],
-      ["research_questions", "研究问题"],
-      ["methods", "方法"],
-      ["results", "结果"],
-      ["discussion", "讨论"],
-      ["ethics_limitations", "伦理与局限"],
-    ] as const;
-    const visibleSections = sections.flatMap(([key, label]) => {
-      const text = asText(latestManuscriptSections[key]);
-      return text ? [{ key, label, text }] : [];
-    });
-    if (!visibleSections.length) return null;
+    if (!latestManuscriptSectionEntries.length) return null;
     return (
       <div className="manuscript-section-preview">
         <div className="output-section-heading">
           <div><h3>候选论文实际内容</h3><p className="section-subtitle">这是后端生成的正文预览，写入草稿后可继续人工编辑。</p></div>
-          <span>{visibleSections.length} 节</span>
+          <span>{latestManuscriptSectionEntries.length} 节</span>
         </div>
-        {visibleSections.map((section) => (
+        {latestManuscriptSectionEntries.map((section) => (
           <article key={section.key}>
             <span>{section.label}</span>
             <p>{cleanResearchPresentation(section.text)}</p>
@@ -2862,21 +2972,7 @@ export function App() {
     const selectedManuscript = selectedDocument?.document.document_type === "manuscript"
       ? selectedDocument
       : null;
-    const sectionEntries = latestManuscriptSections
-      ? [
-        ["title", "标题"],
-        ["abstract", "摘要"],
-        ["introduction", "引言"],
-        ["research_questions", "研究问题"],
-        ["methods", "方法"],
-        ["results", "结果"],
-        ["discussion", "讨论"],
-        ["ethics_limitations", "伦理与局限"],
-      ].flatMap(([key, label]) => {
-        const text = asText(latestManuscriptSections[key]);
-        return text ? [{ key, label, text }] : [];
-      })
-      : [];
+    const sectionEntries = latestManuscriptSectionEntries;
 
     return (
       <div className="paper-workbench-layout">
@@ -2937,6 +3033,22 @@ export function App() {
             </div>
           ) : (
             <div className="empty-output"><span className="empty-symbol">□</span><p>论文候选生成后，完整正文会显示在这里。</p></div>
+          )}
+          {manuscriptFigureManifest.length > 0 && (
+            <section className="paper-figure-gallery" aria-label="论文图表">
+              <div className="paper-figure-gallery-heading">
+                <div><strong>论文图表</strong><span>{manuscriptFigureManifest.length} 张</span></div>
+                <small>人工生成模拟数据，仅用于产品流程演示</small>
+              </div>
+              <div className="paper-figure-grid">
+                {manuscriptFigureManifest.map((figure) => (
+                  <figure key={`${figure.figure_number}-${figure.url}`}>
+                    <img src={figure.url} alt={figure.alt_text} loading="lazy" />
+                    <figcaption>{figure.caption}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            </section>
           )}
         </div>
         <aside className="paper-review-panel">
@@ -3252,7 +3364,7 @@ export function App() {
                 })}
               </div>
               {codeSaveError && <p className="workflow-control-error" role="alert">{codeSaveError}</p>}
-              {analysisState?.statistical_result_card && (
+              {effectiveStatisticalResultCard && (
                 <div className="code-result-actions">
                   <strong>分析结果</strong>
                   <span>结果卡已生成，可导出为 SciDAVis 文件继续复核。</span>
@@ -3291,7 +3403,7 @@ export function App() {
         : datasetDocuments.length
           ? `${datasetDocuments.length} 份数据资料已登记`
           : "尚未登记分析数据";
-      const statisticalResult = analysisState?.statistical_result_card;
+      const statisticalResult = effectiveStatisticalResultCard;
       const reviewItems = [
         {
           title: "研究问题与方法",
@@ -3395,7 +3507,7 @@ export function App() {
             <button
               className="primary-inline-button"
               type="button"
-              disabled={!auth?.access_token || reproducibilityBusy || !analysisState?.statistical_result_card || (!selectedDocument && !latestManuscriptArtifact && !draftDocuments.length)}
+              disabled={!auth?.access_token || reproducibilityBusy || !effectiveStatisticalResultCard || (!selectedDocument && !latestManuscriptArtifact && !draftDocuments.length)}
               onClick={() => void runReproducibilityReview()}
             >
               {reproducibilityBusy ? "审查中..." : "运行复现审查"}
@@ -3685,9 +3797,7 @@ export function App() {
       setDocuments(nextDocuments);
       const createdDocument = nextDocuments.find((document) => document.document_id === applied.document_id);
       if (createdDocument) await openDocument(createdDocument);
-      setView("knowledge");
-      setContextTab("evidence");
-      setRightPaneVisible(true);
+      openDedicatedWorkbench("paper", "paper-review");
     } catch (error) {
       const message = error instanceof Error ? error.message : "论文草稿写入失败";
       setAgentPlanError(message);
@@ -4180,14 +4290,14 @@ export function App() {
   };
 
   const extractManuscriptNumbers = (content: string) => {
-    const matches = content.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi) ?? [];
+    const matches = content.match(/-?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/gi) ?? [];
     return matches
       .map((item) => Number(item))
       .filter((item) => Number.isFinite(item));
   };
 
   const runReproducibilityReview = async () => {
-    const statisticalResult = analysisState?.statistical_result_card;
+    const statisticalResult = effectiveStatisticalResultCard;
     const selectedManuscript = selectedDocument?.document.document_type === "manuscript"
       ? selectedDocument
       : null;
@@ -4235,6 +4345,45 @@ export function App() {
         } => claim !== null);
       if (!numericClaims.length) {
         setReproducibilityError("未在当前论文正文中识别到与已验证结果卡对应的数字，请先保存正文后再审查。");
+        return;
+      }
+      if (usesShowcaseResultFallback) {
+        const missingResults = Object.entries(statisticalResult.values).filter(([, expected]) => (
+          !numbers.some((reported) => Math.abs(reported - expected) <= 1e-8)
+        ));
+        const findings = missingResults.map(([key], index) => ({
+          finding_id: `demo-reproducibility-${index + 1}`,
+          severity: "major",
+          category: "模拟结果一致性",
+          description: `论文正文未找到结果卡字段“${statisticalResultLabel(key)}”的对应数值。`,
+          suggested_action: "核对演示稿正文和统计结果卡后重新导入。",
+          evidence_refs: [latestStatisticalResultArtifact?.artifact_id ?? "demo-result-card"],
+        }));
+        setReproducibilityReview({
+          workflow_state: workflowSnapshot ?? {
+            project_id: projectId,
+            current_stage: "VERIFIED",
+            pending_approval_ref: null,
+            last_route_decision: null,
+            data_pipeline: null,
+            research_state: null,
+          },
+          outcome: {
+            findings,
+            revision_requests: findings.length ? [{
+              revision_id: "demo-reproducibility-revision",
+              required_changes: findings.map((finding) => finding.description),
+              blocking: true,
+            }] : [],
+            report: {
+              review_report_id: "demo-reproducibility-review",
+              overall_recommendation: findings.length ? "REVISE" : "PASS",
+              finding_refs: findings.map((finding) => finding.finding_id),
+              revision_request_refs: findings.length ? ["demo-reproducibility-revision"] : [],
+            },
+          },
+          approval_request: null,
+        });
         return;
       }
       const result = await workflowApi.runReproducibilityReview(projectId, {
@@ -4432,6 +4581,12 @@ export function App() {
     try {
       const created = await authApi.uploadDocument(auth.access_token, projectId, file);
       setDocuments((current) => [created, ...current.filter((item) => item.document_id !== created.document_id)]);
+      const [reviewPackage, formal] = await Promise.all([
+        workflowApi.getEvidenceReviewPackage(projectId).catch(() => null),
+        workflowApi.listFormalEvidence(projectId).catch(() => null),
+      ]);
+      setEvidenceReviewPackage(reviewPackage);
+      if (formal) setFormalEvidence(formal);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "上传文档失败");
     } finally {
@@ -4863,10 +5018,32 @@ export function App() {
   };
 
   const exportResultForSciDAVis = async () => {
-    if (!projectId || !analysisState?.statistical_result_card) return;
+    if (!projectId || !effectiveStatisticalResultCard) return;
     setScidavisBusy(true);
     setAnalysisError("");
     try {
+      if (usesShowcaseResultFallback) {
+        const filename = "layered-ai-transfer-demo-results.csv";
+        const rows = [
+          "metric,value",
+          ...Object.entries(effectiveStatisticalResultCard.values).map(([key, value]) => `${key},${value}`),
+        ];
+        const url = URL.createObjectURL(new Blob([`\uFEFF${rows.join("\n")}\n`], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
+        setScidavisExport({
+          project_id: projectId,
+          result_id: effectiveStatisticalResultCard.result_id,
+          filename,
+          file_path: `浏览器下载/${filename}`,
+          row_count: Object.keys(effectiveStatisticalResultCard.values).length,
+          format: "csv",
+        });
+        return;
+      }
       setScidavisExport(await workflowApi.exportResultForSciDAVis(projectId));
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "SciDAVis 导出失败");
@@ -4922,7 +5099,7 @@ export function App() {
   if (auth && workspaceMode === "teaching") {
     return (
       <TeachingWorkspaceFrame
-        url={import.meta.env.VITE_STARMAP_WEB_URL || "http://127.0.0.1:5178"}
+        url={starMapWebUrl}
         userLabel={auth.user.display_name ?? auth.user.username}
         onBack={openWorkspaceSelector}
         onSignOut={() => void signOut()}
@@ -6264,17 +6441,23 @@ export function App() {
                 <div className={analysisStage === "STUDY_PROTOCOL_APPROVED" ? "analysis-stage-item active" : "analysis-stage-item"}>
                   <span>1</span><strong>研究方案</strong><small>{analysisStage === "INTAKE" ? "请先从研究问题界定开始" : analysisStage === "STUDY_PROTOCOL_APPROVED" ? "等待生成分析方案" : "已完成或已进入数据阶段"}</small>
                 </div>
-                <div className={analysisState ? "analysis-stage-item active" : "analysis-stage-item"}>
-                  <span>2</span><strong>数据管道</strong><small>{analysisState?.stage ?? "尚未建立分析计划"}</small>
+                <div className={analysisState || latestDataAudit ? "analysis-stage-item active" : "analysis-stage-item"}>
+                  <span>2</span><strong>数据管道</strong><small>{analysisState?.stage ?? (latestDataAudit ? "演示数据审查已记录" : "尚未建立分析计划")}</small>
                 </div>
-                <div className={analysisState?.statistical_result_card ? "analysis-stage-item active" : "analysis-stage-item"}>
-                  <span>3</span><strong>结果验证</strong><small>{analysisState?.statistical_result_card ? "已有结果卡" : "等待受控执行"}</small>
+                <div className={effectiveStatisticalResultCard ? "analysis-stage-item active" : "analysis-stage-item"}>
+                  <span>3</span><strong>结果验证</strong><small>{effectiveStatisticalResultCard ? "已有结果卡" : "等待受控执行"}</small>
                 </div>
               </div>
-              {!analysisState && (
+              {!analysisState && !usesShowcaseResultFallback && (
                 <div className="analysis-inline-note">
                   <strong>还没有分析管道</strong>
                   <span>请在对话框中说“开始数据分析”或“生成分析方案”，系统会自动准备下一步。</span>
+                </div>
+              )}
+              {!analysisState && usesShowcaseResultFallback && (
+                <div className="analysis-inline-note demo-analysis-note">
+                  <strong>演示流程结果已导入</strong>
+                  <span>该项目使用人工生成模拟数据展示完整分析链；真实账号仍需依次完成数据审查、冻结、执行和结果验证。</span>
                 </div>
               )}
             </section>
@@ -6368,20 +6551,20 @@ export function App() {
                   <div className="output-section-heading">
                     <h3>分析结果</h3>
                     <div className="output-heading-actions">
-                      <span>{analysisState.statistical_result_card ? "已生成" : "等待执行"}</span>
-                      {analysisState.statistical_result_card && (
+                      <span>{effectiveStatisticalResultCard ? "已生成" : "等待执行"}</span>
+                      {effectiveStatisticalResultCard && (
                         <button className="secondary-inline-button" type="button" disabled={scidavisBusy} onClick={() => void exportResultForSciDAVis()}>
                           {scidavisBusy ? "导出中..." : "导出到 SciDAVis"}
                         </button>
                       )}
                     </div>
                   </div>
-                  {analysisState.statistical_result_card ? (
+                  {effectiveStatisticalResultCard ? (
                     <div className="analysis-result-grid">
-                      {Object.entries(analysisState.statistical_result_card.values).map(([key, value]) => (
-                        <div key={key}><strong>{String(value)}</strong><small>{key.replaceAll("_", " ")}</small></div>
+                      {Object.entries(effectiveStatisticalResultCard.values).map(([key, value]) => (
+                        <div key={key}><strong>{String(value)}</strong><small>{statisticalResultLabel(key)}</small></div>
                       ))}
-                      <p className="analysis-result-note">结果状态：{analysisState.statistical_result_card.execution_status}。正式解释仍需遵守结果卡和人工审查边界。</p>
+                      <p className="analysis-result-note">结果状态：{effectiveStatisticalResultCard.execution_status}。正式解释仍需遵守结果卡和人工审查边界。</p>
                       {scidavisExport && <p className="analysis-result-note">已生成 SciDAVis CSV：{scidavisExport.file_path}（{scidavisExport.row_count} 项）</p>}
                     </div>
                   ) : (
@@ -6389,6 +6572,23 @@ export function App() {
                   )}
                 </section>
               </>
+            )}
+            {!analysisState && effectiveStatisticalResultCard && (
+              <section className="output-section compact-section demo-result-section">
+                <div className="output-section-heading">
+                  <div><h3>模拟统计结果卡</h3><p className="section-subtitle">人工生成模拟数据，仅用于产品流程演示</p></div>
+                  <button className="secondary-inline-button" type="button" disabled={scidavisBusy} onClick={() => void exportResultForSciDAVis()}>
+                    {scidavisBusy ? "导出中..." : "导出到 SciDAVis"}
+                  </button>
+                </div>
+                <div className="analysis-result-grid">
+                  {Object.entries(effectiveStatisticalResultCard.values).map(([key, value]) => (
+                    <div key={key}><strong>{String(value)}</strong><small>{statisticalResultLabel(key)}</small></div>
+                  ))}
+                  <p className="analysis-result-note">结果状态：演示导入已核对。效应量和显著性结果不构成真实教学效果证据。</p>
+                  {scidavisExport && <p className="analysis-result-note">已生成 SciDAVis CSV：{scidavisExport.file_path}（{scidavisExport.row_count} 项）</p>}
+                </div>
+              </section>
             )}
             {renderPageMaterials("数据处理与分析计划", ["data_analysis", "codex"])}
             {analysisError && <p className="upload-error" role="alert">{analysisError}</p>}

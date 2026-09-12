@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import HomePage from './routes/HomePage'
 import TeachPage from './routes/TeachPage'
 import StarMapPage from './routes/StarMapPage'
@@ -8,7 +8,7 @@ import CourseCasesPage from './routes/CourseCasesPage'
 
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
 
@@ -22,7 +22,7 @@ function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 

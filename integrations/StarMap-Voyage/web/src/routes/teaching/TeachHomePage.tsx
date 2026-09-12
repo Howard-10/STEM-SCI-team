@@ -22,7 +22,7 @@ const BUBBLES = [
 ]
 
 interface Props {
-  onStartProject: (query: string, grade: string) => void
+  onStartProject: (query: string, grade: string, include3D: boolean) => void
 }
 
 function TeachHomePage({ onStartProject }: Props) {
@@ -54,9 +54,9 @@ function TeachHomePage({ onStartProject }: Props) {
               onChange={e => setQuery(e.target.value)}
               placeholder="输入课题，例如：光的折射与透镜探究..."
               className="flex-1"
-              onKeyDown={e => { if (e.key==='Enter' && query.trim()) onStartProject(query.trim(), grade) }}
+              onKeyDown={e => { if (e.key==='Enter' && query.trim()) onStartProject(query.trim(), grade, include3D) }}
             />
-            <Button onClick={() => query.trim() && onStartProject(query.trim(), grade)}>生成教案</Button>
+            <Button onClick={() => query.trim() && onStartProject(query.trim(), grade, include3D)}>生成教案</Button>
           </div>
 
           {/* Filters */}
@@ -81,7 +81,7 @@ function TeachHomePage({ onStartProject }: Props) {
         {BUBBLES.map((b) => (
           <button
             key={b.id}
-            onClick={() => onStartProject(`设计一份关于「${b.title}」的STEM教案`, grade)}
+            onClick={() => onStartProject(`设计一份关于「${b.title}」的STEM教案`, grade, include3D)}
             className="group relative cursor-pointer rounded-2xl border border-indigo-100 bg-white p-5 text-center transition-all duration-300 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-50 hover:-translate-y-1"
           >
             <div className={`mx-auto mb-3 h-14 w-14 rounded-2xl bg-gradient-to-br ${b.color} flex items-center justify-center shadow-sm`}>

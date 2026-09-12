@@ -1,9 +1,12 @@
-let API_BASE = window.API_BASE || ""; // same origin
+let API_BASE = window.API_BASE || "";
 if (!API_BASE) {
     try {
         const loc = window.location;
         if (loc.protocol === 'file:') {
-            API_BASE = 'http://127.0.0.1:8000';
+            API_BASE = 'http://127.0.0.1:8800';
+        } else {
+            const appIndex = loc.pathname.indexOf('/app/');
+            API_BASE = appIndex >= 0 ? loc.pathname.slice(0, appIndex) : '';
         }
     } catch (_) { }
 }
@@ -1494,4 +1497,4 @@ function hideFinishPracticeButton() {
         nextQuestionAfterAnswerBtn.textContent = '下一题';
         nextQuestionAfterAnswerBtn.className = 'primary';
     }
-} 
+}

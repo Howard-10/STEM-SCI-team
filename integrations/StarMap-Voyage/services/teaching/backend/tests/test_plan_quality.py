@@ -194,6 +194,25 @@ def test_generation_revises_short_model_output_and_caches_only_valid_result(monk
     assert len(plan_generator._plan_cache) == 1
 
 
+def test_generation_respects_disabled_3d_print_option(monkeypatch):
+    markdown = _complete_plan().replace(
+        "激光笔、水槽、量角器。",
+        "激光笔、水槽、量角器和三维模型。",
+    )
+    monkeypatch.setattr(plan_generator, "retrieve_fewshot_examples", lambda *args: [])
+    monkeypatch.setattr(plan_generator, "retrieve_relevant_sections", lambda *args: [])
+    monkeypatch.setattr(plan_generator, "_call_llm", lambda *args: (markdown, {}))
+    plan_generator._plan_cache.clear()
+
+    result = plan_generator.generate_teaching_plan(
+        "探索光的折射",
+        grade_level="初中",
+        include_3d_print=False,
+    )
+
+    assert result["has_3d_print"] is False
+
+
 def test_repair_calls_use_a_larger_budget_for_complete_lesson_content(monkeypatch):
     short = "# 项目\n\n## 教学过程\n### 第1课时：导入\n活动：教师讲解，学生讨论。"
     calls = []
@@ -354,9 +373,9 @@ def test_generation_continues_when_optional_rag_retrieval_is_unavailable(monkeyp
     assert result["quality"]["ok"] is True
 
 
-def test_optional_rag_is_skipped_without_siliconflow_credentials(monkeypatch):
+def test_optional_rag_is_skipped_without_embedding_credentials(monkeypatch):
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test-key")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     called = []
     monkeypatch.setattr(plan_generator, "retrieve_fewshot_examples", lambda *args: called.append("fewshot"))
     monkeypatch.setattr(plan_generator, "retrieve_relevant_sections", lambda *args: called.append("sections"))

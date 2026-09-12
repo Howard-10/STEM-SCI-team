@@ -820,7 +820,7 @@ async def api_path(concept: str = Query(..., description="知识点名称")) -> 
 async def root():
     if os.path.isdir(FRONTEND_DIR):
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/app/")
+        return RedirectResponse(url="app/")
     return {"message": "API 在线。未发现前端目录。"}
 
 

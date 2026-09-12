@@ -15,11 +15,16 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
+
+# Local development reads credentials from the integration root. Production
+# may continue to inject the same variables through systemd/Docker.
+load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
 
 from agents.plan_generator import generate_teaching_plan, get_bubble_topics
 from agents.project_tutor import ProjectTutor
@@ -27,6 +32,7 @@ from agents.threed_designer import ThreeDDesignerAgent
 from agents.arduino_gen import ArduinoCodeGenerator
 from agents.difficulty_adapter import DifficultyAdapter
 from agents.code_assistant import get_code_assistant
+from agents.llm_config import resolve_chat_config
 from api.literature import router as literature_router
 from api.experiment import router as experiment_router
 
@@ -34,6 +40,7 @@ threed_agent = ThreeDDesignerAgent()
 arduino_gen = ArduinoCodeGenerator()
 difficulty_adapter = DifficultyAdapter()
 code_assistant = get_code_assistant()
+_LLM_CONFIG = resolve_chat_config()
 
 # ---- App Init ----
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -693,14 +700,14 @@ def _code_design_reply(session_id: str) -> str:
 
     try:
         resp = requests.post(
-            "https://api.siliconflow.cn/v1/chat/completions",
+            _LLM_CONFIG["url"],
             json={
-                "model": "deepseek-ai/DeepSeek-V3",
+                "model": _LLM_CONFIG["model"],
                 "messages": messages,
                 "max_tokens": 2048,
                 "temperature": 0.5,
             },
-            headers={"Authorization": f"Bearer {os.environ.get('SILICONFLOW_API_KEY', '').strip()}"},
+            headers={"Authorization": f"Bearer {_LLM_CONFIG['api_key']}"},
             timeout=90
         )
         if resp.status_code == 200:
@@ -1083,12 +1090,12 @@ async def recommend_resources(req: ResourceRequest):
 
     try:
         resp = requests.post(
-            "https://api.siliconflow.cn/v1/chat/completions",
-            json={"model": "deepseek-ai/DeepSeek-V3", "messages": [
+            _LLM_CONFIG["url"],
+            json={"model": _LLM_CONFIG["model"], "messages": [
                 {"role": "system", "content": "你是STEM教育资源推荐专家。返回纯JSON数组，只包含query搜索关键词，不要url。"},
                 {"role": "user", "content": prompt}
             ], "max_tokens": 800, "temperature": 0.5},
-            headers={"Authorization": f"Bearer {os.environ.get('SILICONFLOW_API_KEY', '').strip()}"},
+            headers={"Authorization": f"Bearer {_LLM_CONFIG['api_key']}"},
             timeout=30
         )
         if resp.status_code == 200:
@@ -1250,13 +1257,13 @@ async def api_evaluate_stage(req: StageEvalRequest):
 
     try:
         resp = requests.post(
-            "https://api.siliconflow.cn/v1/chat/completions",
+            _LLM_CONFIG["url"],
             json={
-                "model": "deepseek-ai/DeepSeek-V3",
+                "model": _LLM_CONFIG["model"],
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 500, "temperature": 0.3,
             },
-            headers={"Authorization": f"Bearer {os.environ.get('SILICONFLOW_API_KEY', '').strip()}"},
+            headers={"Authorization": f"Bearer {_LLM_CONFIG['api_key']}"},
             timeout=30
         )
 

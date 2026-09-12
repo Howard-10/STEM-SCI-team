@@ -43,20 +43,26 @@ function TeachPage() {
     }
   }, [projectId])
 
-  function handleStartProject(q: string, g: string) {
+  function handleStartProject(q: string, g: string, include3D: boolean) {
     setLoadError('')
-    generatePlan(q, g)
+    generatePlan(q, g, include3D)
   }
 
-  async function generatePlan(q: string, g: string) {
+  async function generatePlan(q: string, g: string, include3D: boolean) {
     setStage('loading')
     setLoadingText('正在为你生成完整教案...')
     try {
       const resp = await fetch(`${API_BASE}/api/generate-plan`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, grade_level: g, include_3d_print: true })
+        body: JSON.stringify({ query: q, grade_level: g, include_3d_print: include3D })
       })
       const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        const detail = typeof data.detail === 'string'
+          ? data.detail
+          : `教学服务返回 HTTP ${resp.status}`
+        throw new Error(detail)
+      }
       if (data.success && data.plan) {
         // The backend may return a draft when the model could not satisfy the
         // lesson-completeness contract. Do not publish such a draft as a
@@ -77,7 +83,8 @@ function TeachPage() {
       }
     } catch (e) {
       console.error(e)
-      setLoadError(e instanceof Error && e.message ? `教案生成请求失败：${e.message}` : '无法连接教学后端，请确认已启动（端口 8002）。')
+      const message = e instanceof Error && e.message ? e.message : '教学服务暂时不可用。'
+      setLoadError(`教案生成失败：${message}`)
       setStage('home')
     }
   }

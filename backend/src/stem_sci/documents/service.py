@@ -261,10 +261,12 @@ class DocumentService:
     def _version(self, row: sqlite3.Row) -> DocumentVersion:
         content_path = self._resolve_storage_ref(str(row["storage_ref"]))
         try:
-            content = content_path.read_text(encoding="utf-8")
+            encoded = content_path.read_bytes()
+            content = encoded.decode("utf-8")
         except OSError as exc:
             raise DocumentError(500, "document_content_missing", "Document content is missing") from exc
-        encoded = content.encode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise DocumentError(500, "document_content_invalid", "Document content is not valid UTF-8") from exc
         if _sha256(encoded) != row["sha256"]:
             raise DocumentError(500, "document_hash_mismatch", "Document content hash mismatch")
         return DocumentVersion(

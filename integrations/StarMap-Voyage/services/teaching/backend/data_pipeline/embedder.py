@@ -13,15 +13,25 @@ import requests
 
 
 # ---- Config ----
-EMBEDDING_API_URL = "https://api.siliconflow.cn/v1/embeddings"
-EMBEDDING_MODEL = "BAAI/bge-large-zh-v1.5"
-API_KEY = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+if os.environ.get("SILICONFLOW_API_KEY", "").strip():
+    EMBEDDING_API_URL = os.environ.get(
+        "SILICONFLOW_EMBEDDING_URL", "https://api.siliconflow.cn/v1/embeddings"
+    )
+    EMBEDDING_MODEL = os.environ.get("SILICONFLOW_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
+    API_KEY = os.environ["SILICONFLOW_API_KEY"].strip()
+else:
+    EMBEDDING_API_URL = os.environ.get(
+        "DASHSCOPE_EMBEDDING_URL",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+    )
+    EMBEDDING_MODEL = os.environ.get("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v3")
+    API_KEY = os.environ.get("DASHSCOPE_API_KEY", "").strip()
 BATCH_SIZE = 4
 VECTOR_DIM = 1024
 
 
 def embed_texts(texts: List[str], api_key: str = None) -> List[List[float]]:
-    """Embed a list of texts using SiliconFlow API."""
+    """Embed a list of texts using the configured OpenAI-compatible API."""
     key = api_key or API_KEY
     all_embeddings = []
 

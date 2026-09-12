@@ -279,6 +279,37 @@ def test_project_documents_are_versioned_and_member_scoped(client: TestClient) -
     ).status_code == 404
 
 
+def test_project_document_versions_preserve_windows_line_endings(client: TestClient) -> None:
+    alice = _register(client, "alice-crlf", "alice-crlf@example.test")
+    token = str(alice["access_token"])
+    assert client.post(
+        "/api/v1/projects",
+        headers=_auth(token),
+        json={"project_id": "crlf-paper", "title": "Paper", "research_direction": "Physics STEM"},
+    ).status_code == 200
+
+    content = "# Windows draft\r\n\r\nFirst paragraph.\r\nSecond paragraph.\r\n"
+    created = client.post(
+        "/api/v1/projects/crlf-paper/documents",
+        headers=_auth(token),
+        json={
+            "title": "CRLF draft",
+            "document_type": "manuscript",
+            "format": "markdown",
+            "content": content,
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    document_id = created.json()["document_id"]
+    version = client.get(
+        f"/api/v1/projects/crlf-paper/documents/{document_id}/versions/1",
+        headers=_auth(token),
+    )
+    assert version.status_code == 200, version.text
+    assert version.json()["content"] == content
+
+
 def test_project_document_upload_extracts_docx_text(client: TestClient) -> None:
     alice = _register(client, "alice", "alice@example.test")
     alice_token = str(alice["access_token"])

@@ -7,10 +7,12 @@
 """
 import os
 import requests
+from agents.llm_config import resolve_chat_config
 
-LLM_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
-LLM_MODEL = "deepseek-ai/DeepSeek-V3"
-API_KEY = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+_LLM_CONFIG = resolve_chat_config()
+LLM_API_URL = _LLM_CONFIG["url"]
+LLM_MODEL = _LLM_CONFIG["model"]
+API_KEY = _LLM_CONFIG["api_key"]
 
 
 def _call_llm(system_prompt: str, user_message: str, max_tokens: int = 4096) -> str:

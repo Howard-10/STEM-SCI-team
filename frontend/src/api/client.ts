@@ -41,6 +41,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+function isKnowledgeAssetSummary(payload: unknown): payload is KnowledgeAssetSummary {
+  if (!payload || typeof payload !== "object") return false;
+  const summary = payload as Partial<KnowledgeAssetSummary>;
+  return Boolean(
+    summary.formal_corpus
+      && typeof summary.formal_corpus === "object"
+      && summary.structured_assets
+      && typeof summary.structured_assets === "object",
+  );
+}
+
 function demoFallback<T>(path: string, init?: RequestInit): T {
   if (path === "/health") {
     return {
@@ -107,7 +118,13 @@ export const api = {
   getBundle: (projectId: string, contextId: string) =>
     request<Bundle>(`/context/${contextId}?${query({ project_id: projectId })}`),
   listSharedCorpora: () => request<SharedCorpusSummary[]>("/corpora"),
-  getKnowledgeAssetSummary: () => request<KnowledgeAssetSummary>("/knowledge-assets/summary"),
+  getKnowledgeAssetSummary: async () => {
+    const payload = await request<unknown>("/knowledge-assets/summary");
+    if (!isKnowledgeAssetSummary(payload)) {
+      throw new Error("Knowledge asset summary is unavailable");
+    }
+    return payload;
+  },
   getDiscoveryAssets: () => request<DiscoveryAssetResponse>("/knowledge-assets/discovery"),
   searchSharedCorpus: (projectId: string, queryText: string, mode: SharedContextMode) =>
     request<SharedRetrievalResponse>("/retrieval/search", {

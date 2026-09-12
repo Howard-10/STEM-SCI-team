@@ -1147,7 +1147,9 @@ def _build_orchestration_writing_context(
     )
 
 # Load repository-local switches before constructing Controller services.
-_repository_root = Path(__file__).resolve().parents[3]
+_repository_root = Path(
+    os.getenv("STEM_SCI_REPOSITORY_ROOT", str(Path(__file__).resolve().parents[3]))
+).resolve()
 _backend_root = Path(__file__).resolve().parents[2]
 for _dotenv_path in (
     _repository_root / ".env.local",

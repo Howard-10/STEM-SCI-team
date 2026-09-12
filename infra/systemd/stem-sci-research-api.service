@@ -1,0 +1,17 @@
+[Unit]
+Description=STEM-SCI teaching research API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/stem-sci/STEM-SCI-repo/integrations/StarMap-Voyage/services/research
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/stem-sci/STEM-SCI-repo/integrations/StarMap-Voyage/services/research
+Environment=DEEPSEEK_API_KEY=
+ExecStart=/opt/stem-sci/venv-starmap/bin/python -m backend.main --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

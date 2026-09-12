@@ -13,12 +13,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import requests
+from agents.llm_config import resolve_chat_config
 
 router = APIRouter(prefix="/api/experiment", tags=["experiment"])
 
-LLM_URL = "https://api.siliconflow.cn/v1/chat/completions"
-LLM_MODEL = "deepseek-ai/DeepSeek-V3"
-API_KEY = os.environ.get("SILICONFLOW_API_KEY", "").strip()
+_LLM_CONFIG = resolve_chat_config()
+LLM_URL = _LLM_CONFIG["url"]
+LLM_MODEL = _LLM_CONFIG["model"]
+API_KEY = _LLM_CONFIG["api_key"]
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "experiments")
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -50,7 +52,7 @@ class ExperimentRecordInput(BaseModel):
 # ---- Helpers ----
 def _call_llm(system: str, user: str, max_tokens: int = 2048) -> str:
     if not API_KEY:
-        return "AI服务未配置：请设置 SILICONFLOW_API_KEY。"
+        return "AI服务未配置，请在助学服务环境中设置模型 API key。"
     try:
         resp = requests.post(LLM_URL, json={
             "model": LLM_MODEL,
