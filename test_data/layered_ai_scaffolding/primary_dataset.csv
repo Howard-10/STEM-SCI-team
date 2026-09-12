@@ -1,0 +1,25 @@
+student_id,team_id,class_id,block_id,physics_pre,python_pre,modeling_pre,condition,scaffold_version,week,course_modeling_score,motivation,anxiety,cognitive_load,code_quality,error_rate,ai_available,transfer_score,task_surface,deep_structure,simulation_flag
+S001,T01,C1,B01,62,58,60,layered_ai,L1-L5-v1,1,58,3.1,2.8,3.0,52,0.34,true,,, ,true
+S001,T01,C1,B01,62,58,60,layered_ai,L1-L5-v1,6,72,3.5,2.3,2.6,68,0.20,true,,, ,true
+S001,T01,C1,B01,62,58,60,layered_ai,L1-L5-v1,8,,,,,,false,78,new_projectile_context,force_balance_and_validation,true
+S002,T01,C1,B01,65,61,63,layered_ai,L1-L5-v1,1,60,3.2,2.7,3.1,54,0.32,true,,, ,true
+S002,T01,C1,B01,65,61,63,layered_ai,L1-L5-v1,6,75,3.6,2.2,2.5,70,0.18,true,,, ,true
+S002,T01,C1,B01,65,61,63,layered_ai,L1-L5-v1,8,,,,,,false,82,new_projectile_context,force_balance_and_validation,true
+S003,T02,C1,B01,61,57,59,usual_support,usual-support-v1,1,57,3.0,2.9,3.1,51,0.35,false,,, ,true
+S003,T02,C1,B01,61,57,59,usual_support,usual-support-v1,6,68,3.3,2.5,2.8,65,0.23,false,,, ,true
+S003,T02,C1,B01,61,57,59,usual_support,usual-support-v1,8,,,,,,false,71,new_projectile_context,force_balance_and_validation,true
+S004,T02,C1,B01,64,60,62,usual_support,usual-support-v1,1,59,3.1,2.8,3.0,53,0.33,false,,, ,true
+S004,T02,C1,B01,64,60,62,usual_support,usual-support-v1,6,70,3.4,2.4,2.7,66,0.21,false,,, ,true
+S004,T02,C1,B01,64,60,62,usual_support,usual-support-v1,8,,,,,,false,75,new_projectile_context,force_balance_and_validation,true
+S005,T03,C2,B02,70,68,66,layered_ai,L1-L5-v1,1,61,3.2,2.7,3.0,55,0.31,true,,, ,true
+S005,T03,C2,B02,70,68,66,layered_ai,L1-L5-v1,6,71,3.4,2.5,2.7,67,0.22,true,,, ,true
+S005,T03,C2,B02,70,68,66,layered_ai,L1-L5-v1,8,,,,,,false,80,new_projectile_context,force_balance_and_validation,true
+S006,T03,C2,B02,72,69,68,layered_ai,L1-L5-v1,1,63,3.3,2.6,2.9,57,0.29,true,,, ,true
+S006,T03,C2,B02,72,69,68,layered_ai,L1-L5-v1,6,74,3.5,2.4,2.6,69,0.19,true,,, ,true
+S006,T03,C2,B02,72,69,68,layered_ai,L1-L5-v1,8,,,,,,false,84,new_projectile_context,force_balance_and_validation,true
+S007,T04,C2,B02,69,67,65,usual_support,usual-support-v1,1,60,3.2,2.7,3.0,54,0.30,false,,, ,true
+S007,T04,C2,B02,69,67,65,usual_support,usual-support-v1,6,70,3.4,2.5,2.7,66,0.22,false,,, ,true
+S007,T04,C2,B02,69,67,65,usual_support,usual-support-v1,8,,,,,,false,76,new_projectile_context,force_balance_and_validation,true
+S008,T04,C2,B02,71,70,67,usual_support,usual-support-v1,1,62,3.3,2.6,2.9,56,0.28,false,,, ,true
+S008,T04,C2,B02,71,70,67,usual_support,usual-support-v1,6,73,3.5,2.4,2.6,68,0.20,false,,, ,true
+S008,T04,C2,B02,71,70,67,usual_support,usual-support-v1,8,,,,,,false,79,new_projectile_context,force_balance_and_validation,true

@@ -30,11 +30,11 @@ import {
   type OrchestrationGate,
   type OrchestrationBlocker,
   type OrchestrationTask,
+  type ResearchRun,
   type ResearchBeliefGraph,
   type ResearchBranch,
   type OrchestrationEvent,
   type ProjectClaim,
-  type ReproducibilityReviewResult,
 } from "./api/workflow";
 import { api } from "./api/client";
 import type {
@@ -43,20 +43,15 @@ import type {
   SearchResult,
   SharedCorpusSummary,
 } from "./types/context";
-import type { BackendHealth } from "./api/client";
 import { demoBundle, demoCorpus, demoQAResponse, demoRuntime } from "./demo/data";
 import { demoDocumentContents, demoDocumentsByProject, demoProjects } from "./demo/projectHub";
 import { ResearchProgressBoard } from "./components/ResearchProgressBoard";
 import { ResearchAnalysisWorkbench } from "./components/ResearchAnalysisWorkbench";
 import { TechnicalTrace } from "./components/TechnicalTrace";
-import { TeachingWorkspaceFrame } from "./components/TeachingWorkspaceFrame";
-import { WorkspaceModeSelector } from "./components/WorkspaceModeSelector";
 
 type WorkspaceView = "knowledge" | "codex" | "analysis" | "audit";
 type ContextTab = "workspace" | "evidence" | "agent-work" | "agent-plan" | "agent-outputs";
 export type WorkspaceTab = "home" | "workspace" | "editor" | "agent" | "audit";
-type OutputSectionId = "questions" | "evidence" | "data" | "code" | "paper" | "review";
-type OutputWorkbenchId = "overview" | "research-design" | "evidence-review" | "data-audit" | "code-review" | "paper-review" | "final-review";
 
 type ChatMessage = {
   id: string;
@@ -90,23 +85,13 @@ type ConversationalHistoryEntry = {
   created_at: string;
 };
 
+type ConversationTimelineItem =
+  | { kind: "turn"; created_at: string; turn: ConversationalHistoryEntry }
+  | { kind: "event"; created_at: string; event: OrchestrationEvent };
+
 type PaneWidths = {
   sidebar: number;
   output: number;
-};
-
-type KnowledgeAssetKind = "source" | "candidate" | "manuscript" | "evidence" | "claim" | "audit";
-
-type KnowledgeAsset = {
-  id: string;
-  kind: KnowledgeAssetKind;
-  title: string;
-  summary: string;
-  status: string;
-  version?: string;
-  provenance?: string;
-  updatedAt?: string;
-  action?: string;
 };
 
 type SelectedDocument = {
@@ -126,13 +111,21 @@ type DialogueBranchOption = {
   message: string;
 };
 
-type BackendStatus = "checking" | "online" | "offline";
-type WorkspaceMode = "research" | "teaching" | null;
-
-function workspaceModeFromPath(): WorkspaceMode {
-  if (window.location.pathname === "/workspace/research") return "research";
-  if (window.location.pathname === "/workspace/teaching") return "teaching";
-  return null;
+function dialoguePromptLabel(turnRole: string): string {
+  switch (turnRole) {
+    case "ask_novel":
+      return "下一项关键判断";
+    case "challenge":
+      return "这里需要补一层证据";
+    case "decide":
+      return "这里需要你来定";
+    case "wait":
+      return "当前先停在这里";
+    case "summarize":
+      return "请确认这项研究判断";
+    default:
+      return "请补充关键材料";
+  }
 }
 
 const demoProjectId = import.meta.env.VITE_PROJECT_ID && import.meta.env.VITE_PROJECT_ID !== "demo"
@@ -166,50 +159,7 @@ function cleanResearchPresentation(value: string): string {
     .replace(/claim:[a-z0-9:_-]+/gi, "主张记录")
     .replace(/artifact-[a-z0-9_-]+/gi, "研究产物")
     .replace(/\b(?:shared_evd|evd|ctx|src)_[A-Za-z0-9_-]+\b/gi, "相关证据片段")
-    .replace(/\b(?:task|plan|run)_[A-Za-z0-9_-]+\b/gi, "研究记录")
-    .replace(/当前全文资源尚未挂载/g, "当前正式全文索引尚未完成");
-}
-
-function runtimeReasonLabel(value: string | null | undefined, fallback: string): string {
-  const labels: Record<string, string> = {
-    CODEX_PROVIDER_NOT_SELECTED: "尚未选择代码生成服务，可先使用受控模板。",
-    CODING_PROVIDER_NOT_CONFIGURED: "代码生成服务尚未配置。",
-    SPSS_EXECUTABLE_NOT_CONFIGURED: "SPSS 批处理程序尚未配置。",
-    SPSS_EXECUTABLE_NOT_FOUND: "本机暂未检测到 SPSS 批处理程序，可先使用内置审计与脚本校验流程。",
-    SCIDAVIS_EXECUTABLE_NOT_CONFIGURED: "SciDAVis 程序尚未配置。",
-    SCIDAVIS_EXECUTABLE_NOT_FOUND: "本机暂未检测到 SciDAVis 程序，可先保留 CSV 结果并在安装后复核。",
-  };
-  if (!value) return fallback;
-  return labels[value] ?? cleanResearchPresentation(value);
-}
-
-function corpusStatusLabel(summary: SharedCorpusSummary | null | undefined): string {
-  if (summary?.formal_evidence_ready) return "正式证据可用";
-  if (summary?.discovery_ready) return "发现模式可用";
-  return "正式索引待完善";
-}
-
-function corpusRiskFlagLabel(value: string): string {
-  if (/asset_missing/i.test(value)) return "部分本地索引资产待生成，当前不影响已上传资料的发现式检索。";
-  if (/formal_locator/i.test(value)) return "正式页码定位索引待完善，当前证据可先按文本片段追溯。";
-  if (/vector|vectordb/i.test(value)) return "向量索引仍在补齐，可继续使用已登记资料与文本证据。";
-  return cleanResearchPresentation(value);
-}
-
-function compactResearchText(value: string | null | undefined, fallback: string): string {
-  if (!value?.trim()) return fallback;
-  const cleaned = cleanResearchPresentation(value)
-    .replace(/请(?:基于|据此|进入|帮我|先|继续|启动)[^。！？]{12,120}[。！？]?/g, "")
-    .replace(/涉及候选产物[^。！？]+[。！？]?/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const readable = cleaned || value.trim();
-  return readable.length > 120 ? `${readable.slice(0, 118)}...` : readable;
-}
-
-function formatReviewNumber(value: unknown): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return String(value ?? "-");
-  return value.toFixed(3);
+    .replace(/\b(?:task|plan|run)_[A-Za-z0-9_-]+\b/gi, "研究记录");
 }
 
 function intakeWorkflowState(projectId: string): WorkflowState {
@@ -345,29 +295,6 @@ function citationStatusLabel(citation: SelectedCitation) {
 function citationPageLabel(citation: SelectedCitation) {
   if (citation.page_start == null) return "页码待补充";
   return `第 ${citation.page_start}${citation.page_end && citation.page_end !== citation.page_start ? `-${citation.page_end}` : ""} 页`;
-}
-
-function claimStatusLabel(value: string | null | undefined) {
-  const labels: Record<string, string> = {
-    NOT_REQUIRED: "无需额外核验",
-    PENDING: "待审核",
-    REVIEW_REQUIRED: "待审核",
-    VERIFIED: "已核验",
-    APPROVED: "已确认",
-  };
-  if (!value) return "待审核";
-  return labels[value] ?? value.replaceAll("_", " ");
-}
-
-function claimSectionLabel(value: string) {
-  const labels: Record<string, string> = {
-    introduction: "引言",
-    methods: "方法",
-    results: "结果",
-    discussion: "讨论",
-    ethics_limitations: "伦理与局限",
-  };
-  return labels[value] ?? value;
 }
 
 function agentStatus(snapshot: ControllerWorkflowState | null, agentId: string): string {
@@ -523,7 +450,6 @@ function shouldAutoInvokeAgent(text: string): boolean {
 
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => readStoredAuth());
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => workspaceModeFromPath());
   const [projects, setProjects] = useState<ApiResearchProject[]>(demoMode ? demoProjects : []);
   const [projectsReady, setProjectsReady] = useState(!readStoredAuth()?.access_token);
   const [projectId, setProjectId] = useState(demoMode ? (demoProjects[0]?.project_id ?? demoProjectId) : "");
@@ -543,10 +469,6 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [loginValue, setLoginValue] = useState("");
   const [passwordValue, setPasswordValue] = useState("");
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [registerUsername, setRegisterUsername] = useState("");
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerDisplayName, setRegisterDisplayName] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
@@ -596,19 +518,8 @@ export function App() {
   const [physicsBusy, setPhysicsBusy] = useState(false);
   const [physicsError, setPhysicsError] = useState("");
   const [analysisWorkbenchOpen, setAnalysisWorkbenchOpen] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
-  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [rightPaneVisible, setRightPaneVisible] = useState(false);
-  const [topResearchInfoOpen, setTopResearchInfoOpen] = useState(false);
-  const [selectedOutputSection, setSelectedOutputSection] = useState<OutputSectionId>("questions");
-  const [activeOutputWorkbench, setActiveOutputWorkbench] = useState<OutputWorkbenchId>("overview");
-  const [workbenchExpanded, setWorkbenchExpanded] = useState(false);
-  const [expandedEvidenceRowId, setExpandedEvidenceRowId] = useState<string | null>(null);
-  const [codeArtifactDrafts, setCodeArtifactDrafts] = useState<Record<string, string>>({});
-  const [codeSaveBusy, setCodeSaveBusy] = useState<string | null>(null);
-  const [codeSaveError, setCodeSaveError] = useState("");
-  const [expandedCodeArtifactId, setExpandedCodeArtifactId] = useState<string | null>(null);
-  const [paneWidths, setPaneWidths] = useState<PaneWidths>({ sidebar: 246, output: 680 });
+  const [paneWidths, setPaneWidths] = useState<PaneWidths>({ sidebar: 246, output: 374 });
   const [draggingPane, setDraggingPane] = useState<"sidebar" | "output" | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowState | null>(null);
   const [workflowBusy, setWorkflowBusy] = useState(false);
@@ -616,8 +527,6 @@ export function App() {
   const [evidenceRows, setEvidenceRows] = useState<SearchResult[]>([]);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
   const [evidenceError, setEvidenceError] = useState("");
-  const [citationActionBusy, setCitationActionBusy] = useState(false);
-  const [citationActionError, setCitationActionError] = useState("");
   const [corpusSummary, setCorpusSummary] = useState<SharedCorpusSummary | null>(null);
   const [knowledgeAssetSummary, setKnowledgeAssetSummary] = useState<KnowledgeAssetSummary | null>(null);
   const [discoveryAssets, setDiscoveryAssets] = useState<DiscoveryAssetResponse | null>(null);
@@ -642,14 +551,12 @@ export function App() {
   const [orchestrationState, setOrchestrationState] = useState<OrchestrationControlState | null>(null);
   const [projectBlockers, setProjectBlockers] = useState<OrchestrationBlocker[]>([]);
   const [orchestrationTasks, setOrchestrationTasks] = useState<OrchestrationTask[]>([]);
+  const [researchRuns, setResearchRuns] = useState<ResearchRun[]>([]);
   const [researchEvents, setResearchEvents] = useState<OrchestrationEvent[]>([]);
   const [orchestrationHistory, setOrchestrationHistory] = useState<ConversationalHistoryEntry[]>([]);
   const [evidenceReviewPackage, setEvidenceReviewPackage] = useState<EvidenceReviewPackage | null>(null);
   const [orchestrationArtifacts, setOrchestrationArtifacts] = useState<OrchestrationArtifactContent[]>([]);
   const [projectClaims, setProjectClaims] = useState<ProjectClaim[]>([]);
-  const [reproducibilityReview, setReproducibilityReview] = useState<ReproducibilityReviewResult | null>(null);
-  const [reproducibilityBusy, setReproducibilityBusy] = useState(false);
-  const [reproducibilityError, setReproducibilityError] = useState("");
   const [publicationTarget, setPublicationTarget] = useState("International Journal of STEM Education");
   const [publicationArticleType, setPublicationArticleType] = useState("Research Article");
   const [publicationTargetBusy, setPublicationTargetBusy] = useState(false);
@@ -776,43 +683,6 @@ export function App() {
     document.querySelector<HTMLTextAreaElement>(".composer-box textarea")?.focus();
   };
 
-  const openOutputWorkspace = (
-    section: OutputSectionId = selectedOutputSection,
-    workbench: OutputWorkbenchId = "overview",
-  ) => {
-    setView("audit");
-    setContextTab("workspace");
-    setSelectedOutputSection(section);
-    setActiveOutputWorkbench(workbench);
-    setWorkbenchExpanded(false);
-    setRightPaneVisible(true);
-  };
-
-  const openDedicatedWorkbench = (
-    section: OutputSectionId = selectedOutputSection,
-    workbench: OutputWorkbenchId = activeOutputWorkbench,
-  ) => {
-    setView("audit");
-    setContextTab("workspace");
-    setSelectedOutputSection(section);
-    setActiveOutputWorkbench(workbench);
-    setRightPaneVisible(true);
-    setWorkbenchExpanded(true);
-  };
-
-  const openKnowledgeLibrary = () => {
-    setView("knowledge");
-    setContextTab("evidence");
-    setWorkbenchExpanded(false);
-    setRightPaneVisible(true);
-  };
-
-  const focusResearchDialogue = () => {
-    setWorkbenchExpanded(false);
-    setRightPaneVisible(false);
-    document.querySelector<HTMLTextAreaElement>(".composer-box textarea")?.focus();
-  };
-
   useEffect(() => {
     if (contextTab === "agent-plan" || contextTab === "agent-outputs") {
       setContextTab("agent-work");
@@ -831,42 +701,32 @@ export function App() {
     const expireSession = () => {
       clearAuth();
       setAuth(null);
-      setWorkspaceMode(null);
-      window.history.replaceState({}, "", "/");
     };
     window.addEventListener("stem-sci-auth-expired", expireSession);
     return () => window.removeEventListener("stem-sci-auth-expired", expireSession);
-  }, []);
-
-  useEffect(() => {
-    const handleWorkspaceRoute = () => setWorkspaceMode(workspaceModeFromPath());
-    window.addEventListener("popstate", handleWorkspaceRoute);
-    return () => window.removeEventListener("popstate", handleWorkspaceRoute);
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    setBackendStatus("checking");
-    void api.getHealth()
-      .then((health) => {
-        if (!mounted) return;
-        setBackendHealth(health);
-        setBackendStatus(health.status === "ok" ? "online" : "offline");
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setBackendHealth(null);
-        setBackendStatus("offline");
-      });
-    return () => {
-      mounted = false;
-    };
   }, []);
 
   const activeProject = useMemo(
     () => projects.find((project) => project.project_id === projectId) ?? projects[0] ?? null,
     [projectId, projects],
   );
+
+  // The command journal records researcher decisions while orchestration
+  // events record the durable work those decisions triggered. Present both in
+  // one chronological timeline so a refresh exposes the actual research path.
+  const conversationTimeline = useMemo<ConversationTimelineItem[]>(() => {
+    const turns: ConversationTimelineItem[] = orchestrationHistory.map((turn) => ({
+      kind: "turn",
+      created_at: turn.created_at,
+      turn,
+    }));
+    const events: ConversationTimelineItem[] = researchEvents.map((event) => ({
+      kind: "event",
+      created_at: event.created_at,
+      event,
+    }));
+    return [...turns, ...events].sort((left, right) => left.created_at.localeCompare(right.created_at));
+  }, [orchestrationHistory, researchEvents]);
 
   useEffect(() => {
     let mounted = true;
@@ -892,35 +752,6 @@ export function App() {
   const latestResearchQuestion = latestArtifact("ResearchQuestionTree");
   const latestStudyProtocol = latestArtifact("StudyProtocolCandidate");
   const latestDataAudit = latestArtifact("DataAuditCandidate");
-  const codeWorkbenchArtifactTypes = new Set([
-    "AnalysisCodePlanCandidate",
-    "PhysicsCodeValidationCandidate",
-    "CodeReviewCandidate",
-    "ManualExecutionApprovalCandidate",
-    "SandboxExecutionCandidate",
-    "StatisticalResultValidationCandidate",
-    "BootstrapRobustnessCandidate",
-    "PermutationTestCandidate",
-    "ResultDirectionCandidate",
-    "UncertaintyGateCandidate",
-    "StatisticalResultCard",
-  ]);
-  const codeWorkbenchArtifactLabels: Record<string, string> = {
-    AnalysisCodePlanCandidate: "分析代码计划",
-    PhysicsCodeValidationCandidate: "物理代码校验",
-    CodeReviewCandidate: "代码审查",
-    ManualExecutionApprovalCandidate: "人工执行许可",
-    SandboxExecutionCandidate: "受控分析执行",
-    StatisticalResultValidationCandidate: "结果校验",
-    BootstrapRobustnessCandidate: "Bootstrap 稳健性",
-    PermutationTestCandidate: "置换检验",
-    ResultDirectionCandidate: "方向一致性",
-    UncertaintyGateCandidate: "不确定性边界",
-    StatisticalResultCard: "统计结果卡片",
-  };
-  const codeWorkbenchArtifacts = orchestrationArtifacts.filter((item) =>
-    codeWorkbenchArtifactTypes.has(item.artifact_type),
-  );
   const latestManuscriptArtifact = [...orchestrationArtifacts]
     .reverse()
     .find((item) => item.artifact_type === "ManuscriptDraftZh" || item.artifact_type === "ManuscriptOutline") ?? null;
@@ -959,7 +790,6 @@ export function App() {
       ? demoDocumentsByProject[projectId] ?? demoDocumentsByProject[demoProjectId] ?? []
       : [];
   const draftDocuments = activeDocuments.filter((document) => document.document_type === "manuscript");
-  const datasetDocuments = activeDocuments.filter((document) => document.document_type === "dataset" || document.format === "csv");
   const projectPapers = activeDocuments.filter((document) => document.document_type !== "manuscript");
   const selectedTurnResponse = messages.find(
     (message) => message.id === selectedTurnId && message.role === "assistant",
@@ -1027,107 +857,6 @@ export function App() {
       return stream.phase === "WRITING_PUBLICATION" || Boolean(currentStep && writingStepIds.has(currentStep));
     }) === true;
 
-  const knowledgeAssets: KnowledgeAsset[] = [
-    ...projectPapers.map((document) => ({
-      id: document.document_id,
-      kind: "source" as const,
-      title: document.title,
-      summary: document.document_type === "dataset"
-        ? "项目原始数据，保留在项目范围内，后续审计和冻结均从该版本开始。"
-        : "用户上传的原始论文或研究资料，可供检索、证据定位和对话引用。",
-      status: document.status === "active" ? "已登记" : "已归档",
-      version: `v${document.current_version}`,
-      provenance: document.format.toUpperCase(),
-      updatedAt: document.updated_at,
-      action: document.document_type === "dataset" ? "打开数据审查" : "查看原始资料",
-    })),
-    ...draftDocuments.map((document) => ({
-      id: document.document_id,
-      kind: "manuscript" as const,
-      title: document.title,
-      summary: "审核后的论文草稿，保留可编辑版本和每次保存记录，不与候选产出混淆。",
-      status: "可编辑草稿",
-      version: `v${document.current_version}`,
-      provenance: "项目文档",
-      updatedAt: document.updated_at,
-      action: "打开论文工作台",
-    })),
-    ...(latestManuscriptArtifact ? [{
-      id: latestManuscriptArtifact.artifact_id,
-      kind: "candidate" as const,
-      title: latestManuscriptTitle,
-      summary: "后端生成的候选论文正文，保留章节内容、主张关系和证据边界，等待人工审核后再写入正式论文。",
-      status: "候选待审核",
-      version: `v${latestManuscriptArtifact.created_at ? new Date(latestManuscriptArtifact.created_at).toLocaleDateString() : "当前"}`,
-      provenance: "论文产出工作区",
-      updatedAt: latestManuscriptArtifact.created_at,
-      action: "打开论文工作台",
-    }] : []),
-    ...agentOutputs.filter((output) => (
-      output.agent_id === "paper_writing"
-      && output.output_previews.some((preview) => ["ManuscriptDraftZh", "ManuscriptOutline"].includes(preview.artifact_type))
-    )).map((output) => ({
-      id: output.task_id,
-      kind: "manuscript" as const,
-      title: (() => {
-        const preview = output.output_previews.find((item) => item.artifact_type === "ManuscriptDraftZh")
-          ?? output.output_previews.find((item) => item.artifact_type === "ManuscriptOutline");
-        return asText(preview?.content.title) ?? "候选论文草稿";
-      })(),
-      summary: "对话生成的候选论文，尚未覆盖正式草稿；可进入论文工作台人工编辑后保存。",
-      status: "候选待审核",
-      version: "候选版本",
-      provenance: "论文产出工作区",
-      updatedAt: undefined,
-      action: "打开论文工作台",
-    })),
-    ...(evidenceReviewPackage ? [{
-      id: evidenceReviewPackage.artifact_id,
-      kind: "evidence" as const,
-      title: "本项目证据审阅包",
-      summary: `包含 ${evidenceReviewPackage.body.coverage.source_count} 个来源、${evidenceReviewPackage.body.coverage.evidence_count} 条证据片段和 ${evidenceReviewPackage.body.evidence_matrix.length} 条主张对应。`,
-      status: evidenceReviewPackage.body.status === "READY" ? "候选包已就绪" : "仍需补充",
-      version: `v${evidenceReviewPackage.version}`,
-      provenance: "证据与文献工作台",
-      action: "打开证据工作台",
-    }] : []),
-    ...formalEvidence.map((record) => {
-      const ref = record.evidence_ref;
-      return {
-        id: record.evidence_id,
-        kind: "evidence" as const,
-        title: typeof ref.paper_title === "string" ? ref.paper_title : "正式证据片段",
-        summary: typeof ref.excerpt === "string" ? cleanResearchPresentation(ref.excerpt) : "来源已核验并进入正式证据链。",
-        status: "正式证据",
-        version: record.promoted_at ? new Date(record.promoted_at).toLocaleDateString() : "已提升",
-        provenance: `${record.provenance.length} 次产出关联`,
-        updatedAt: record.promoted_at,
-        action: "查看证据定位",
-      };
-    }),
-    ...projectClaims.map((claim) => ({
-      id: claim.claim_id,
-      kind: "claim" as const,
-      title: `${claimSectionLabel(claim.section)} · ${claim.claim_type}`,
-      summary: cleanResearchPresentation(claim.claim_text),
-      status: claimStatusLabel(claim.reviewer_status || claim.verification_status),
-      version: `${claim.support_evidence_ids.length + claim.support_result_ids.length + claim.support_artifact_ids.length} 项绑定`,
-      provenance: claim.support_type,
-      action: "查看主张绑定",
-    })),
-    ...(latestDataAudit ? [{
-      id: latestDataAudit.artifact_id,
-      kind: "audit" as const,
-      title: "数据审计记录",
-      summary: `已记录 ${String(dataAuditDetails?.row_count ?? dataManifest?.row_count ?? "-")} 行、${String(dataAuditDetails?.column_count ?? auditColumns.length ?? "-")} 列的审计结果。`,
-      status: "可复核",
-      version: "当前审计",
-      provenance: "数据与审计工作台",
-      updatedAt: latestDataAudit.created_at,
-      action: "打开审计记录",
-    }] : []),
-  ];
-
   useEffect(() => {
     if (!auth?.access_token) {
       setProjects(demoMode ? demoProjects : []);
@@ -1192,17 +921,8 @@ export function App() {
     setSelectedDocument(null);
     setSelectedCitation(null);
     setConversations([]);
-    if (!projectId || !projectsReady) {
-      setDocuments(demoMode && projectId
-        ? demoDocumentsByProject[projectId] ?? demoDocumentsByProject[demoProjectId] ?? []
-        : []);
-      setDocumentsBusy(false);
-      return () => {
-        mounted = false;
-      };
-    }
     if (!auth?.access_token) {
-      setDocuments(demoMode ? demoDocumentsByProject[projectId] ?? demoDocumentsByProject[demoProjectId] ?? [] : []);
+      setDocuments(demoDocumentsByProject[projectId] ?? demoDocumentsByProject[demoProjectId] ?? []);
       setConversations([]);
       setDocumentsBusy(false);
       return () => {
@@ -1228,7 +948,7 @@ export function App() {
     return () => {
       mounted = false;
     };
-  }, [auth?.access_token, projectId, projectsReady]);
+  }, [auth?.access_token, projectId]);
 
   // Project conversations are scoped to the selected project. Clear the
   // in-memory thread when that scope changes, then let the restore effect
@@ -1248,6 +968,7 @@ export function App() {
     if (!auth?.access_token || !projectId || !projectsReady) {
       setProjectBlockers([]);
       setOrchestrationTasks([]);
+      setResearchRuns([]);
       setResearchEvents([]);
       setOrchestrationHistory([]);
       return;
@@ -1271,6 +992,13 @@ export function App() {
           })
           .catch(() => {
             if (mounted) setOrchestrationTasks([]);
+          });
+        void workflowApi.listResearchRuns(projectId)
+          .then((runs) => {
+            if (mounted) setResearchRuns(runs);
+          })
+          .catch(() => {
+            if (mounted) setResearchRuns([]);
           });
         // The orchestration journal is the durable, project-scoped record of
         // every workflow command.  Keep it separate from the ordinary QA
@@ -1598,7 +1326,7 @@ export function App() {
         const nextOutput = window.innerWidth - event.clientX;
         setPaneWidths((current) => ({
           ...current,
-          output: Math.max(420, Math.min(820, nextOutput)),
+          output: Math.max(280, Math.min(520, nextOutput)),
         }));
       }
     };
@@ -1663,80 +1391,6 @@ export function App() {
     return next;
   };
 
-  const refreshProjectOutputs = async (focusLatest = false) => {
-    if (!auth?.access_token || !projectId) return;
-    const [
-      controlResult,
-      artifactResult,
-      outputResult,
-      materialResult,
-      formalEvidenceResult,
-      reviewPackageResult,
-    ] = await Promise.allSettled([
-      workflowApi.getControlState(projectId),
-      workflowApi.listArtifactContents(projectId),
-      workflowApi.listAgentOutputs(projectId),
-      workflowApi.listAgentPageMaterials(projectId),
-      workflowApi.listFormalEvidence(projectId),
-      workflowApi.getEvidenceReviewPackage(projectId),
-    ]);
-    if (controlResult.status === "fulfilled") {
-      setOrchestrationState(controlResult.value);
-      setConversationControl((current) => current
-        ? {
-          ...current,
-          control_state: controlResult.value,
-          route_decision: controlResult.value.route_decision,
-          gate: current.gate && controlResult.value.active_gate_id === current.gate.gate_id
-            ? current.gate
-            : buildGateFromState(controlResult.value),
-        }
-        : current);
-    }
-    const artifacts = artifactResult.status === "fulfilled"
-      ? artifactResult.value as OrchestrationArtifactContent[]
-      : null;
-    if (artifacts) setOrchestrationArtifacts(artifacts);
-    if (outputResult.status === "fulfilled") setAgentOutputs(outputResult.value);
-    if (materialResult.status === "fulfilled") setPageMaterials(materialResult.value);
-    if (formalEvidenceResult.status === "fulfilled") setFormalEvidence(formalEvidenceResult.value);
-    if (reviewPackageResult.status === "fulfilled") setEvidenceReviewPackage(reviewPackageResult.value);
-
-    if (!focusLatest || !artifacts?.length) return;
-    const latest = [...artifacts].sort((left, right) =>
-      new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
-    )[0];
-    // Do not steal the researcher's current view because an ordinary chat
-    // turn refreshed an older candidate. Only focus a candidate created by
-    // the current request.
-    if (Date.now() - new Date(latest.created_at).getTime() > 60_000) return;
-    if (latest.artifact_type === "PhysicsCodeValidationCandidate"
-      || latest.artifact_type === "AnalysisCodePlanCandidate"
-      || latest.artifact_type === "CodeReviewCandidate"
-      || latest.artifact_type === "ManualExecutionApprovalCandidate") {
-      setSelectedOutputSection("code");
-      setActiveOutputWorkbench("code-review");
-      setRightPaneVisible(true);
-    } else if (latest.artifact_type === "ManuscriptDraftZh"
-      || latest.artifact_type === "ManuscriptOutline") {
-      setSelectedOutputSection("paper");
-      setActiveOutputWorkbench("paper-review");
-      setRightPaneVisible(true);
-    } else if (latest.artifact_type === "EvidenceReviewPackage"
-      || latest.artifact_type === "EvidenceMatrixCandidate"
-      || latest.artifact_type === "BoundedEvidenceSynthesis"
-      || latest.artifact_type === "ResearchGapReport") {
-      setSelectedOutputSection("evidence");
-      setActiveOutputWorkbench("evidence-review");
-      setRightPaneVisible(true);
-    } else if (latest.artifact_type === "ResearchQuestionTree"
-      || latest.artifact_type === "StudyProtocolCandidate") {
-      setSelectedOutputSection("questions");
-      setActiveOutputWorkbench("research-design");
-      setRightPaneVisible(true);
-    }
-  };
-
   const searchProjectEvidence = async () => {
     if (!projectId || !activeProject) return;
     setEvidenceBusy(true);
@@ -1755,24 +1409,8 @@ export function App() {
     setEvidenceBusy(true);
     setEvidenceError("");
     try {
-      if (auth?.access_token) {
-        const document = await authApi.uploadDocument(auth.access_token, projectId, file);
-        setDocuments((current) => [
-          document,
-          ...current.filter((item) => item.document_id !== document.document_id),
-        ]);
-      } else {
-        await api.importSource(projectId, file);
-      }
+      await api.importSource(projectId, file);
       await searchProjectEvidence();
-      if (auth?.access_token) {
-        const [reviewPackage, formal] = await Promise.all([
-          workflowApi.getEvidenceReviewPackage(projectId),
-          workflowApi.listFormalEvidence(projectId),
-        ]);
-        setEvidenceReviewPackage(reviewPackage);
-        setFormalEvidence(formal);
-      }
     } catch (error) {
       setEvidenceError(error instanceof Error ? error.message : "证据来源上传失败");
     } finally {
@@ -1781,35 +1419,7 @@ export function App() {
     }
   };
 
-  const findEvidenceForCitation = (rows: SearchResult[], citation: SelectedCitation) => {
-    const excerpt = citation.excerpt.trim();
-    const matchesExcerpt = (item: SearchResult) => {
-      const candidate = item.evidence.excerpt.trim();
-      return candidate === excerpt
-        || (candidate.length >= 40 && excerpt.includes(candidate))
-        || (excerpt.length >= 40 && candidate.includes(excerpt));
-    };
-    return rows.find((item) => item.evidence.chunk_id === citation.canonical_chunk_id)
-      ?? rows.find(matchesExcerpt)
-      ?? null;
-  };
-
-  const resolveEvidenceForCitation = async (citation: SelectedCitation) => {
-    const existing = findEvidenceForCitation(evidenceRows, citation);
-    if (existing) return existing.evidence;
-    const searched = await api.search(projectId, citation.excerpt);
-    const match = findEvidenceForCitation(searched, citation);
-    if (searched.length > 0) {
-      setEvidenceRows((current) => {
-        const merged = new Map(current.map((item) => [item.evidence.evidence_id, item]));
-        searched.forEach((item) => merged.set(item.evidence.evidence_id, item));
-        return [...merged.values()];
-      });
-    }
-    return match?.evidence ?? null;
-  };
-
-  const verifyProjectEvidence = async (evidenceId: string): Promise<boolean> => {
+  const verifyProjectEvidence = async (evidenceId: string) => {
     setEvidenceBusy(true);
     setEvidenceError("");
     try {
@@ -1819,59 +1429,12 @@ export function App() {
         auth?.user.username ?? "researcher",
         "已人工核对上传来源与对应原文片段。",
       );
-      if (auth?.access_token) {
-        await workflowApi.promoteVerifiedEvidence(projectId, evidenceId);
-        const [reviewPackage, formal] = await Promise.all([
-          workflowApi.getEvidenceReviewPackage(projectId),
-          workflowApi.listFormalEvidence(projectId),
-        ]);
-        setEvidenceReviewPackage(reviewPackage);
-        setFormalEvidence(formal);
-      }
       await searchProjectEvidence();
-      return true;
     } catch (error) {
       setEvidenceError(error instanceof Error ? error.message : "证据核验失败");
-      return false;
     } finally {
       setEvidenceBusy(false);
     }
-  };
-
-  const verifySelectedCitation = async () => {
-    if (!selectedCitation) return;
-    setCitationActionBusy(true);
-    setCitationActionError("");
-    try {
-      const evidence = await resolveEvidenceForCitation(selectedCitation);
-      if (!evidence) {
-        setCitationActionError("当前回答引用还没有绑定到项目证据，无法提交核验。请先在证据审阅区刷新或上传对应来源。");
-        return;
-      }
-      const alreadyFormal = formalEvidence.some((record) => record.evidence_id === evidence.evidence_id);
-      if (!alreadyFormal) {
-        const verified = await verifyProjectEvidence(evidence.evidence_id);
-        if (!verified) {
-          setCitationActionError("证据核验失败，请检查来源文件和定位信息后重试。");
-          return;
-        }
-      }
-      setSelectedCitation(null);
-    } catch (error) {
-      setCitationActionError(error instanceof Error ? error.message : "无法定位当前回答对应的项目证据");
-    } finally {
-      setCitationActionBusy(false);
-    }
-  };
-
-  const openCitationDetails = (citation: SelectedCitation) => {
-    setCitationActionError("");
-    setSelectedCitation(citation);
-  };
-
-  const closeCitationDetails = () => {
-    setCitationActionError("");
-    setSelectedCitation(null);
   };
 
   const uploadRawCsv = async (file: File) => {
@@ -2061,7 +1624,6 @@ export function App() {
   const decideAgentOutput = async (
     output: AgentOutputSummary,
     decision: "retain" | "reject" | "apply" | "promote",
-    artifactIdsOverride?: string[],
   ) => {
     if (!output.artifact_ids.length || agentPlanBusy) return;
     const promotableTypes = new Set([
@@ -2069,9 +1631,7 @@ export function App() {
       "EvidenceMatrixCandidate",
       "BoundedEvidenceSynthesis",
     ]);
-    const artifactIds = artifactIdsOverride?.length
-      ? artifactIdsOverride
-      : decision === "promote"
+    const artifactIds = decision === "promote"
       ? output.output_previews
         .filter((preview) => promotableTypes.has(preview.artifact_type))
         .map((preview) => preview.artifact_id)
@@ -2229,35 +1789,6 @@ export function App() {
     // an applied result from an earlier round appearing beside the current one.
     && (!agentPlan || material.plan_id === agentPlan.plan_id)
   ));
-
-  const allPageMaterialsFor = (targets: string[]) => pageMaterials.filter((material) => (
-    targets.includes(material.target)
-  ));
-
-  const codeTextForArtifact = (artifact: OrchestrationArtifactContent) => {
-    const body = artifact.body;
-    for (const key of ["source_code", "code", "python_code", "generated_code", "script"]) {
-      const value = asText(body[key]);
-      if (value) return value;
-    }
-    const nested = [asRecord(body.code), asRecord(body.execution), asRecord(body.result)];
-    for (const item of nested) {
-      if (!item) continue;
-      for (const key of ["source_code", "code", "python_code", "generated_code", "script"]) {
-        const value = asText(item[key]);
-        if (value) return value;
-      }
-    }
-    return "";
-  };
-
-  const readableArtifactFields = (artifact: OrchestrationArtifactContent) => {
-    const entries = Object.entries(artifact.body)
-      .filter(([key, value]) => key !== "source_code" && key !== "code" && key !== "python_code" && key !== "generated_code" && key !== "script")
-      .map(([key, value]) => [key, previewValueText(value)] as const)
-      .filter(([, value]) => value !== "暂无内容");
-    return entries.slice(0, 8);
-  };
 
   const selectAgentQuestion = (plan: AgentExecutionPlan) => {
     setAgentPlan(plan);
@@ -2458,10 +1989,14 @@ export function App() {
           {output.agent_id === "evidence_review" && (
             <>
             <button type="button" disabled={agentPlanBusy || !output.artifact_ids.length} onClick={() => {
-              openOutputWorkspace("evidence", "evidence-review");
+              setView("audit");
+              setContextTab("workspace");
+              setRightPaneVisible(true);
             }}>查看证据审核</button>
             <button type="button" disabled={agentPlanBusy} onClick={() => {
-              openKnowledgeLibrary();
+              setView("knowledge");
+              setContextTab("evidence");
+              setRightPaneVisible(true);
             }}>打开知识库核验</button>
             </>
           )}
@@ -2474,8 +2009,8 @@ export function App() {
     );
   };
 
-  const renderPageMaterials = (title: string, targets: string[], includeAll = false) => {
-    const materials = includeAll ? allPageMaterialsFor(targets) : pageMaterialsFor(targets);
+  const renderPageMaterials = (title: string, targets: string[]) => {
+    const materials = pageMaterialsFor(targets);
     return (
       <section className="output-section applied-material-section">
         <div className="output-section-heading">
@@ -2536,1081 +2071,6 @@ export function App() {
     </section>
   );
 
-  const renderKnowledgeAssetLibrary = () => {
-    const groups: Array<{ kind: KnowledgeAssetKind; title: string; description: string }> = [
-      { kind: "source", title: "原始来源", description: "用户上传的论文、数据和研究资料，作为项目长期检索入口。" },
-      { kind: "candidate", title: "候选论文", description: "对话生成并保留的论文候选，进入正式文档前仍可继续编辑和退回。" },
-      { kind: "manuscript", title: "审核后论文", description: "已经写入项目文档的可编辑论文版本，保留版本链和修改记录。" },
-      { kind: "evidence", title: "证据包与正式证据", description: "候选证据包、来源定位结果和经过人工核验的正式证据。" },
-      { kind: "claim", title: "主张与绑定", description: "论文中的研究主张，以及它关联的证据、结果和产物。" },
-      { kind: "audit", title: "数据与审计", description: "数据质量、字段检查和分析前审计记录。" },
-    ];
-    return (
-      <section className="output-section knowledge-library-section">
-        <div className="output-section-heading">
-          <div>
-            <span className="chat-kicker">LONG-TERM RESEARCH ASSETS</span>
-            <h3>长期研究资产</h3>
-            <p className="section-subtitle">这里保存已经登记、审核或正式确认的内容；当前对话产出的候选材料仍留在产出工作区。</p>
-          </div>
-          <span>{knowledgeAssets.length} 项</span>
-        </div>
-        <div className="knowledge-asset-summary-strip">
-          {groups.map((group) => (
-            <div key={group.kind}>
-              <strong>{knowledgeAssets.filter((asset) => asset.kind === group.kind).length}</strong>
-              <span>{group.title}</span>
-            </div>
-          ))}
-        </div>
-        <div className="knowledge-asset-groups">
-          {groups.map((group) => {
-            const items = knowledgeAssets.filter((asset) => asset.kind === group.kind);
-            return (
-              <details className="knowledge-asset-group" key={group.kind} open={items.length > 0}>
-                <summary>
-                  <span>
-                    <strong>{group.title}</strong>
-                    <small>{group.description}</small>
-                  </span>
-                  <b>{items.length}</b>
-                </summary>
-                {items.length ? (
-                  <div className="knowledge-asset-list">
-                    {items.slice(0, 12).map((asset) => (
-                      <article className="knowledge-asset-row" key={`${asset.kind}-${asset.id}`}>
-                        <div className="knowledge-asset-row-main">
-                          <div className="knowledge-asset-titleline">
-                            <strong>{asset.title}</strong>
-                            <span className={asset.status.includes("正式") || asset.status.includes("可复核") ? "verified-tag" : "review-tag"}>
-                              {asset.status}
-                            </span>
-                          </div>
-                          <p>{asset.summary}</p>
-                          <small>
-                            {asset.version ?? "当前版本"} · {asset.provenance ?? "项目资产"}
-                            {asset.updatedAt ? ` · 更新于 ${new Date(asset.updatedAt).toLocaleDateString()}` : ""}
-                          </small>
-                        </div>
-                        <button
-                          className="plain-action"
-                          type="button"
-                          onClick={() => {
-                            if (asset.kind === "source" || asset.kind === "manuscript") {
-                              const document = activeDocuments.find((item) => item.document_id === asset.id);
-                              if (document) void openDocument(document);
-                              return;
-                            }
-                            if (asset.kind === "candidate") {
-                              openDedicatedWorkbench("paper", "paper-review");
-                              return;
-                            }
-                            if (asset.kind === "evidence") {
-                              openOutputWorkspace("evidence", "evidence-review");
-                              return;
-                            }
-                            if (asset.kind === "audit") {
-                              openOutputWorkspace("data", "data-audit");
-                              return;
-                            }
-                            openOutputWorkspace("paper", "paper-review");
-                          }}
-                        >
-                          {asset.action ?? "查看"}
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="knowledge-asset-empty">当前还没有这类长期资产。</div>
-                )}
-              </details>
-            );
-          })}
-        </div>
-        <div className="knowledge-library-boundary">
-          <strong>长期资产边界</strong>
-          <span>候选产出不会自动覆盖正式版本；只有保存新文档版本、完成来源核验或人工确认后，内容才会进入对应分区。</span>
-        </div>
-      </section>
-    );
-  };
-
-  const renderAppliedMaterials = (title: string, targets: string[]) => renderPageMaterials(title, targets, true);
-
-  const outputSectionCards = [
-    {
-      id: "questions" as const,
-      title: "研究问题与方案",
-      tone: "blue",
-      count: Number(Boolean(latestResearchQuestion)) + Number(Boolean(latestStudyProtocol)) + researchBranches.length,
-      summary: compactResearchText(asText(latestResearchQuestion?.body.primary_question)
-        ?? asText(latestStudyProtocol?.body.primary_outcome)
-        ?? researchBranches[0]?.title, "从对话里沉淀研究问题、路线比较和方案候选。"),
-      workbench: "research-design" as const,
-      action: "查看方案内容",
-    },
-    {
-      id: "evidence" as const,
-      title: "证据与文献",
-      tone: "green",
-      count: (evidenceReviewPackage ? 1 : 0) + formalEvidence.length + citations.length,
-      summary: evidenceReviewPackage?.body.synthesis?.summary
-        ?? (formalEvidence.length ? `已有 ${formalEvidence.length} 条正式证据。` : "上传论文、查看证据审阅包，并把候选证据提升为正式证据。"),
-      workbench: "evidence-review" as const,
-      action: "查看证据内容",
-    },
-    {
-      id: "data" as const,
-      title: "数据与审计",
-      tone: "amber",
-      count: Number(Boolean(latestDataAudit)) + Number(Boolean(analysisState?.raw_dataset)) + Number(Boolean(analysisState?.data_audit_report)) + datasetDocuments.length,
-      summary: latestDataAudit
-        ? "原始数据审计已生成，可继续检查缺失、重复、字段和冻结边界。"
-        : analysisState?.stage
-          ? `当前数据阶段：${analysisState.stage}`
-          : datasetDocuments.length
-            ? `已登记 ${datasetDocuments.length} 份 CSV 数据，等待数据审计与冻结确认。`
-            : "上传 CSV 后先审计，再冻结，关键动作需要人工确认。",
-      workbench: "data-audit" as const,
-      action: "查看数据内容",
-    },
-    {
-      id: "code" as const,
-      title: "分析与代码",
-      tone: "violet",
-      count: Math.max(
-        codeWorkbenchArtifacts.length,
-        Number(Boolean(physicsReport)) + Number(Boolean(analysisState?.code_artifact_ref)) + pageMaterialsFor(["codex", "data_analysis"]).length,
-      ),
-      summary: codeWorkbenchArtifacts.length
-        ? `已记录 ${codeWorkbenchArtifacts.length} 项代码、执行与结果校验产物。`
-        : analysisState?.code_artifact_ref
-        ? "分析代码候选已生成，执行前需要代码审查和确认。"
-        : "放置物理代码校验、分析代码审核和受控执行入口。",
-      workbench: "code-review" as const,
-      action: "查看代码内容",
-    },
-    {
-      id: "paper" as const,
-      title: "论文产出",
-      tone: "rose",
-      count: draftDocuments.length + manuscriptCandidates.length + Number(Boolean(latestManuscriptArtifact)) + projectClaims.length,
-      summary: draftDocuments[0]?.title
-        ?? (latestManuscriptArtifact ? latestManuscriptTitle : "候选论文、正文编辑、投稿格式化和 LaTeX 输出。"),
-      workbench: "paper-review" as const,
-      action: "查看论文内容",
-    },
-    {
-      id: "review" as const,
-      title: "最终审查",
-      tone: "slate",
-      count: projectClaims.length + formalEvidence.length + Number(Boolean(analysisState?.statistical_result_card)),
-      summary: "集中检查研究问题、证据引用、数据版本、统计结果、结论边界和伦理治理。",
-      workbench: "final-review" as const,
-      action: "查看审查内容",
-    },
-  ];
-
-  const selectedOutputCard = outputSectionCards.find((section) => section.id === selectedOutputSection) ?? outputSectionCards[0];
-
-  const workbenchReviewFocus: Record<OutputSectionId, string> = {
-    questions: "研究问题是否清晰，方案边界是否可执行",
-    evidence: "来源是否可定位，证据是否足以支撑当前判断",
-    data: "字段、缺失值、重复记录和冻结边界",
-    code: "代码是否可复核，物理约束和执行风险是否明确",
-    paper: "主张、引用、结果和结论边界是否一致",
-    review: "研究链路是否完整，证据、数据和结论是否彼此一致",
-  };
-
-  const renderOutputWorkbenchPreview = () => (
-    <section className={`output-section workbench-preview-panel workbench-${selectedOutputCard.tone}`}>
-      <div className="workbench-preview-heading">
-        <div>
-          <span className="chat-kicker">当前选择</span>
-          <h3>{selectedOutputCard.title}</h3>
-        </div>
-        <span className={conversationCommitGate ? "review-tag" : "verified-tag"}>
-          {conversationCommitGate ? "待人工确认" : "可继续处理"}
-        </span>
-      </div>
-      <div className="workbench-preview-scroll">
-        <div className="workbench-preview-related">
-          {selectedOutputSection === "questions" && (
-            <>
-              {latestResearchQuestion && (
-                <article>
-                  <span>主要研究问题</span>
-                  <p>{cleanResearchPresentation(asText(latestResearchQuestion.body.primary_question) ?? asText(latestResearchQuestion.body.title) ?? "研究问题候选已生成。")}</p>
-                </article>
-              )}
-              {latestStudyProtocol && (
-                <article>
-                  <span>研究方案</span>
-                  <p>{cleanResearchPresentation(previewValueText(latestStudyProtocol.body.design_type))}</p>
-                </article>
-              )}
-              {!latestResearchQuestion && !latestStudyProtocol && <p className="workbench-muted">当前还没有研究问题或方案产出。</p>}
-            </>
-          )}
-          {selectedOutputSection === "evidence" && (
-            <>
-              <div className="workbench-preview-stat-row">
-                <div><span>来源</span><strong>{evidenceReviewPackage?.body.coverage.source_count ?? 0}</strong></div>
-                <div><span>证据片段</span><strong>{evidenceReviewPackage?.body.coverage.evidence_count ?? 0}</strong></div>
-                <div><span>正式证据</span><strong>{formalEvidence.length}</strong></div>
-              </div>
-              <p className="workbench-preview-summary">{evidenceReviewPackage?.body.synthesis?.summary ?? "上传论文或打开证据卡片，查看原文片段和来源定位。"}</p>
-            </>
-          )}
-          {selectedOutputSection === "data" && (
-            <>
-              <div className="workbench-preview-stat-row">
-                <div><span>数据文件</span><strong>{datasetDocuments.length}</strong></div>
-                <div><span>审计行数</span><strong>{String(dataAuditDetails?.row_count ?? dataManifest?.row_count ?? "—")}</strong></div>
-                <div><span>审计状态</span><strong>{latestDataAudit ? "已记录" : "待审计"}</strong></div>
-              </div>
-              <p className="workbench-preview-summary">{auditColumns.length ? `字段：${auditColumns.slice(0, 5).join("、")}` : "上传 CSV 后，数据审查和字段信息会显示在这里。"}</p>
-            </>
-          )}
-          {selectedOutputSection === "code" && (
-            <>
-              <div className="workbench-preview-stat-row">
-                <div><span>代码产物</span><strong>{codeWorkbenchArtifacts.length}</strong></div>
-                <div><span>执行结果</span><strong>{analysisState?.statistical_result_card ? "已有" : "待生成"}</strong></div>
-                <div><span>物理校验</span><strong>{physicsReport?.passed ? "通过" : "待检查"}</strong></div>
-              </div>
-              <p className="workbench-preview-summary">{codeWorkbenchArtifacts.length ? "代码候选已进入审核区，可展开查看、编辑并统一通过。" : "代码候选生成后会在这里显示。"}</p>
-            </>
-          )}
-          {selectedOutputSection === "paper" && (
-            <>
-              <div className="workbench-preview-stat-row">
-                <div><span>候选论文</span><strong>{manuscriptCandidates.length}</strong></div>
-                <div><span>项目草稿</span><strong>{draftDocuments.length}</strong></div>
-                <div><span>主张</span><strong>{projectClaims.length}</strong></div>
-              </div>
-              {latestManuscriptSections ? renderManuscriptSectionPreview() : <p className="workbench-preview-summary">候选论文生成后，正文、引用核验和 LaTeX 操作会显示在这里。</p>}
-            </>
-          )}
-          {selectedOutputSection === "review" && (
-            <div className="workbench-preview-review-grid">
-              <div><span>正式证据</span><strong>{formalEvidence.length} 条</strong></div>
-              <div><span>主张绑定</span><strong>{projectClaims.length} 条</strong></div>
-              <div><span>数据审计</span><strong>{latestDataAudit ? "已记录" : "待完成"}</strong></div>
-              <div><span>当前阶段</span><strong>{currentStageLabel}</strong></div>
-            </div>
-          )}
-        </div>
-        <dl className="workbench-preview-meta">
-          <div><dt>当前状态</dt><dd>{currentStageLabel}</dd></div>
-          <div><dt>审核重点</dt><dd>{workbenchReviewFocus[selectedOutputSection]}</dd></div>
-          <div><dt>关联内容</dt><dd>{selectedOutputCard.count} 项产出 · {formalEvidence.length} 条正式证据 · {projectClaims.length} 条主张</dd></div>
-        </dl>
-      </div>
-      <div className="workbench-preview-actions">
-        <button className="primary-inline-button" type="button" onClick={() => openDedicatedWorkbench(selectedOutputSection, selectedOutputCard.workbench)}>
-          打开专用工作台
-        </button>
-        {selectedOutputSection === "paper" && (
-          <button className="secondary-inline-button" type="button" onClick={() => openKnowledgeLibrary()}>查看长期论文资产</button>
-        )}
-        {selectedOutputSection === "evidence" && (
-          <button className="secondary-inline-button" type="button" onClick={() => openKnowledgeLibrary()}>进入证据库</button>
-        )}
-        {selectedOutputSection === "data" && (
-          <button className="secondary-inline-button" type="button" onClick={() => setAnalysisWorkbenchOpen(true)}>打开数据审查</button>
-        )}
-      </div>
-    </section>
-  );
-
-  const renderManuscriptSectionPreview = () => {
-    if (!latestManuscriptSections) return null;
-    const sections = [
-      ["title", "标题"],
-      ["abstract", "摘要"],
-      ["introduction", "引言"],
-      ["research_questions", "研究问题"],
-      ["methods", "方法"],
-      ["results", "结果"],
-      ["discussion", "讨论"],
-      ["ethics_limitations", "伦理与局限"],
-    ] as const;
-    const visibleSections = sections.flatMap(([key, label]) => {
-      const text = asText(latestManuscriptSections[key]);
-      return text ? [{ key, label, text }] : [];
-    });
-    if (!visibleSections.length) return null;
-    return (
-      <div className="manuscript-section-preview">
-        <div className="output-section-heading">
-          <div><h3>候选论文实际内容</h3><p className="section-subtitle">这是后端生成的正文预览，写入草稿后可继续人工编辑。</p></div>
-          <span>{visibleSections.length} 节</span>
-        </div>
-        {visibleSections.map((section) => (
-          <article key={section.key}>
-            <span>{section.label}</span>
-            <p>{cleanResearchPresentation(section.text)}</p>
-          </article>
-        ))}
-      </div>
-    );
-  };
-
-  const renderPaperWorkbenchEditor = () => {
-    const selectedManuscript = selectedDocument?.document.document_type === "manuscript"
-      ? selectedDocument
-      : null;
-    const sectionEntries = latestManuscriptSections
-      ? [
-        ["title", "标题"],
-        ["abstract", "摘要"],
-        ["introduction", "引言"],
-        ["research_questions", "研究问题"],
-        ["methods", "方法"],
-        ["results", "结果"],
-        ["discussion", "讨论"],
-        ["ethics_limitations", "伦理与局限"],
-      ].flatMap(([key, label]) => {
-        const text = asText(latestManuscriptSections[key]);
-        return text ? [{ key, label, text }] : [];
-      })
-      : [];
-
-    return (
-      <div className="paper-workbench-layout">
-        <aside className="paper-outline-panel">
-          <div className="workbench-subheading"><span>章节目录</span><small>{sectionEntries.length || "—"} 节</small></div>
-          {sectionEntries.length ? (
-            <nav className="paper-outline-list" aria-label="论文章节目录">
-              {sectionEntries.map((section) => (
-                <a href={`#paper-section-${section.key}`} key={section.key}>{section.label}</a>
-              ))}
-            </nav>
-          ) : (
-            <p className="workbench-muted">生成候选论文后，章节目录会自动出现。</p>
-          )}
-          <div className="workbench-side-block">
-            <span>版本记录</span>
-            <p>{selectedManuscript ? `当前草稿 v${selectedManuscript.version?.version ?? selectedManuscript.document.current_version}` : "候选版本，尚未写入文档"}</p>
-          </div>
-        </aside>
-        <div className="paper-editor-panel">
-          <div className="workbench-subheading">
-            <span>论文正文</span>
-            <small>{selectedManuscript ? "可编辑草稿" : "候选内容预览"}</small>
-          </div>
-          {selectedManuscript ? (
-            <div className="document-editor document-editor-inline">
-              <label className="document-editor-label">
-                论文标题
-                <input
-                  value={documentTitleDraft}
-                  onChange={(event) => setDocumentTitleDraft(event.target.value)}
-                  disabled={documentEditBusy}
-                />
-              </label>
-              <textarea
-                className="paper-main-editor"
-                value={documentContentDraft}
-                onChange={(event) => setDocumentContentDraft(event.target.value)}
-                disabled={!selectedManuscript.version || documentEditBusy}
-                placeholder="论文正文会显示在这里"
-              />
-              <div className="document-editor-actions">
-                <button className="secondary-inline-button" type="button" onClick={() => setSelectedDocument(null)}>关闭编辑</button>
-                <button className="primary-inline-button" type="button" disabled={documentEditBusy || !selectedManuscript.version || !documentTitleDraft.trim()} onClick={() => void saveSelectedDocument()}>
-                  {documentEditBusy ? "保存中..." : "保存新版本"}
-                </button>
-              </div>
-              {documentEditError && <p className="document-editor-error">{documentEditError}</p>}
-            </div>
-          ) : sectionEntries.length ? (
-            <div className="paper-full-preview">
-              {sectionEntries.map((section) => (
-                <article id={`paper-section-${section.key}`} key={section.key}>
-                  <h4>{section.label}</h4>
-                  <p>{cleanResearchPresentation(section.text)}</p>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-output"><span className="empty-symbol">□</span><p>论文候选生成后，完整正文会显示在这里。</p></div>
-          )}
-        </div>
-        <aside className="paper-review-panel">
-          <div className="workbench-subheading"><span>引用与主张绑定</span><small>{projectClaims.length + formalEvidence.length} 项</small></div>
-          <div className="paper-review-list">
-            {projectClaims.slice(0, 8).map((claim) => {
-              const relatedEvidence = formalEvidence.filter((record) => claim.support_evidence_ids.includes(record.evidence_id));
-              return (
-              <details className="paper-binding-detail" key={claim.claim_id}>
-                <summary>
-                <div><span className="review-tag">{claimSectionLabel(claim.section)}</span><small>{claimStatusLabel(claim.reviewer_status || claim.verification_status)}</small></div>
-                <p>{cleanResearchPresentation(claim.claim_text)}</p>
-                <small>证据 {claim.support_evidence_ids.length} · 结果 {claim.support_result_ids.length}</small>
-                </summary>
-                <div className="paper-binding-expanded">
-                  <p><strong>主张类型：</strong>{claim.claim_type} · <strong>支持方式：</strong>{claim.support_type}</p>
-                  <p><strong>验证状态：</strong>{claimStatusLabel(claim.verification_status)} · <strong>审核状态：</strong>{claimStatusLabel(claim.reviewer_status)}</p>
-                  <p><strong>结果绑定：</strong>{claim.support_result_ids.join("、") || "暂无"} · <strong>产物绑定：</strong>{claim.support_artifact_ids.join("、") || "暂无"}</p>
-                  {relatedEvidence.length > 0 ? (
-                    <div className="paper-binding-evidence">
-                      {relatedEvidence.map((record) => {
-                        const ref = record.evidence_ref;
-                        const location = asRecord(ref.location);
-                        return (
-                          <div key={record.evidence_id}>
-                            <strong>{asText(ref.paper_title) ?? "正式证据"}</strong>
-                            <span>{asText(ref.normalized_doi) ?? asText(ref.doi) ?? "DOI 未提供"} · 页码 {String(ref.page ?? location?.page ?? "未提供")}</span>
-                            <p>{asText(ref.excerpt) ?? "已绑定正式证据片段。"}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : <p className="workbench-muted">当前主张还没有绑定正式证据。</p>}
-                </div>
-              </details>
-              );
-            })}
-            {!projectClaims.length && <p className="workbench-muted">当前还没有登记论文主张绑定。</p>}
-          </div>
-          <div className="workbench-side-block">
-            <span>审核重点</span>
-            <ul className="workbench-check-list">
-              <li>结论是否超出数据支持范围</li>
-              <li>关键主张是否绑定正式证据</li>
-              <li>引用是否可以回到原文定位</li>
-            </ul>
-          </div>
-        </aside>
-      </div>
-    );
-  };
-
-  const renderOutputWorkbench = () => {
-    if (activeOutputWorkbench === "research-design") {
-      return (
-        <section className="output-section output-workbench-panel workbench-blue">
-          <div className="output-section-heading">
-            <div><span className="chat-kicker">专用工作台</span><h3>研究问题与方案</h3><p className="section-subtitle">这里承接当前对话形成的研究路线、问题树和方案候选。</p></div>
-            <button className="plain-action" type="button" onClick={() => { setActiveOutputWorkbench("overview"); setWorkbenchExpanded(false); }}>返回总览</button>
-          </div>
-          {(latestResearchQuestion || latestStudyProtocol || researchBranches.length > 0) ? (
-            <div className="workbench-stack">
-              {latestResearchQuestion && (
-                <div className="workbench-readable-block">
-                  <span>主要研究问题</span>
-                  <p className="workbench-full-text">{cleanResearchPresentation(
-                    asText(latestResearchQuestion.body.primary_question)
-                    ?? asText(latestResearchQuestion.body.title)
-                    ?? "已生成研究问题候选。",
-                  )}</p>
-                  {Array.isArray(latestResearchQuestion.body.research_questions)
-                    && latestResearchQuestion.body.research_questions.length > 0 && (
-                    <p className="workbench-full-text workbench-secondary-text">
-                      {latestResearchQuestion.body.research_questions
-                        .filter((item): item is string => typeof item === "string")
-                        .map(cleanResearchPresentation)
-                        .join("；")}
-                    </p>
-                  )}
-                </div>
-              )}
-              {latestStudyProtocol && (
-                <div className="workbench-two-column">
-                  {[
-                    ["研究设计", "design_type", "研究设计候选已生成。"],
-                    ["主要成果", "primary_outcome", "主要成果指标待确认。"],
-                    ["样本与分组", "sampling_approach", "样本策略待确认。"],
-                    ["变量与测量", "variables", "变量和测量方案待确认。"],
-                    ["分析计划", "analysis_plan", "分析计划待确认。"],
-                    ["研究假设", "hypotheses", "研究假设待确认。"],
-                  ].map(([label, key, fallback]) => (
-                    <details className="workbench-expand-card" key={key}>
-                      <summary><strong>{label}</strong><span>&gt;</span></summary>
-                      <p>{cleanResearchPresentation(previewValueText(latestStudyProtocol.body[key]) === "暂无内容" ? fallback : previewValueText(latestStudyProtocol.body[key]))}</p>
-                    </details>
-                  ))}
-                </div>
-              )}
-              {latestStudyProtocol && asText(latestStudyProtocol.body.raw_answer) && (
-                <div className="workbench-readable-block">
-                  <span>完整研究方案回答</span>
-                  <p className="workbench-full-text">{cleanResearchPresentation(
-                    asText(latestStudyProtocol.body.raw_answer) ?? "",
-                  )}</p>
-                </div>
-              )}
-              {researchBranches.length > 0 && (
-                <div className="workbench-card-list">
-                  {researchBranches.slice(0, 5).map((branch) => (
-                    <article key={branch.branch_id}>
-                      <div><strong>{branch.title}</strong><span className={branch.status === "selected" ? "verified-tag" : "review-tag"}>{branch.status === "selected" ? "当前选择" : "待比较"}</span></div>
-                      <p>{branch.description}</p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : <div className="empty-output"><span className="empty-symbol">◇</span><p>在左侧对话中说明研究主题后，方案候选会自动进入这里。</p></div>}
-          {allPageMaterialsFor(["research_questions", "research_design", "data_collection", "workspace"]).length > 0
-            ? renderAppliedMaterials("已应用的方案材料", ["research_questions", "research_design", "data_collection", "workspace"])
-            : renderPageMaterials("已应用的方案材料", ["research_questions", "research_design", "data_collection", "workspace"])}
-        </section>
-      );
-    }
-
-    if (activeOutputWorkbench === "evidence-review") {
-      return (
-        <section className="output-section output-workbench-panel workbench-green">
-          <div className="output-section-heading">
-            <div><span className="chat-kicker">专用工作台</span><h3>证据与文献</h3><p className="section-subtitle">当前对话产生的证据候选在这里审阅，确认后进入知识库长期保存。</p></div>
-            <button className="plain-action" type="button" onClick={() => { setActiveOutputWorkbench("overview"); setWorkbenchExpanded(false); }}>返回总览</button>
-          </div>
-          {evidenceReviewPackage ? (
-            <div className="workbench-stack">
-              <div className="evidence-package-metrics">
-                <div><span>来源</span><strong>{evidenceReviewPackage.body.coverage.source_count}</strong></div>
-                <div><span>新增</span><strong>{evidenceReviewPackage.body.coverage.new_source_count ?? evidenceReviewPackage.body.coverage.source_count}</strong></div>
-                <div><span>证据片段</span><strong>{evidenceReviewPackage.body.coverage.evidence_count}</strong></div>
-                <div><span>矩阵</span><strong>{evidenceReviewPackage.body.evidence_matrix.length}</strong></div>
-              </div>
-              {evidenceReviewPackage.body.synthesis?.summary && <div className="workbench-readable-block"><span>证据综合</span><p>{evidenceReviewPackage.body.synthesis.summary}</p></div>}
-              <div className="workbench-card-list evidence-expand-list">
-                {evidenceReviewPackage.body.evidence_matrix.slice(0, 12).map((row, index) => {
-                  const rowId = row.row_id ?? `${row.source_ref}-${index}`;
-                  const snapshot = evidenceReviewPackage.body.evidence_snapshots.find((item) => (
-                    item.evidence_id && row.evidence_refs?.includes(item.evidence_id)
-                  ));
-                  const sourceCard = evidenceReviewPackage.body.paper_cards.find((item) => item.source_ref === row.source_ref);
-                  const expanded = expandedEvidenceRowId === rowId;
-                  const evidenceCitation = citationForEvidence(sourceCard?.title, snapshot?.excerpt ?? row.finding, snapshot?.evidence_id);
-                  const relatedFormalEvidence = formalEvidence.find((record) => (
-                    snapshot?.evidence_id && record.evidence_id === snapshot.evidence_id
-                  ));
-                  return (
-                    <article className={expanded ? "evidence-expand-card expanded" : "evidence-expand-card"} key={rowId}>
-                      <button type="button" className="evidence-expand-trigger" onClick={() => setExpandedEvidenceRowId(expanded ? null : rowId)}>
-                        <span>
-                          <strong>{row.relation === "SUPPORTING" ? "支持证据" : row.relation === "CONTRASTING" ? "对照证据" : "相关证据"}</strong>
-                          <small>{sourceCard?.title ?? evidenceSourceLabel(row.source_ref)}</small>
-                        </span>
-                        <b>{expanded ? "<" : ">"}</b>
-                      </button>
-                      <p>{row.finding ?? "已生成证据对应，等待人工核验。"}</p>
-                      {expanded && (
-                        <div className="evidence-expand-detail">
-                          <dl>
-                            <div><dt>研究问题</dt><dd>{row.research_question ?? "当前证据对应问题未单列。"}</dd></div>
-                            <div><dt>适用边界</dt><dd>{row.applicability_boundary ?? "来源适用边界待人工补充。"}</dd></div>
-                            <div><dt>DOI</dt><dd>{asText((sourceCard as Record<string, unknown> | undefined)?.doi) ?? evidenceCitation?.normalized_doi ?? evidenceDoiFallback(snapshot?.excerpt) ?? "未提供"}</dd></div>
-                            <div><dt>页码</dt><dd>{snapshot?.page ?? evidenceCitation?.page_start ?? evidencePageFallback(snapshot?.excerpt) ?? "未提供"}</dd></div>
-                            <div><dt>字符定位</dt><dd>{snapshot?.locator ?? (evidenceCitation?.char_start != null && evidenceCitation?.char_end != null ? `${evidenceCitation.char_start}-${evidenceCitation.char_end}` : "未提供")}</dd></div>
-                            <div><dt>证据状态</dt><dd>{relatedFormalEvidence ? "已进入正式证据库" : "候选，等待人工核验"}</dd></div>
-                          </dl>
-                          {snapshot?.excerpt && <blockquote>{snapshot.excerpt}</blockquote>}
-                          <div className="evidence-expand-actions">
-                            {snapshot?.evidence_id && (
-                              <button className={relatedFormalEvidence ? "verified-tag" : "primary-inline-button"} type="button" disabled={evidenceBusy || Boolean(relatedFormalEvidence)} onClick={() => void verifyProjectEvidence(snapshot.evidence_id as string)}>
-                                {relatedFormalEvidence ? "已人工确认" : "人工审核确认来源"}
-                              </button>
-                            )}
-                            {!snapshot?.evidence_id && <span className="workbench-muted">当前条目尚未绑定可核验的证据片段。</span>}
-                          </div>
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          ) : <div className="empty-output"><span className="empty-symbol">⌕</span><p>还没有证据审阅包。你可以先上传论文，或在对话里要求系统检索并整理证据。</p></div>}
-          <div className="workbench-action-row">
-            <button className="secondary-inline-button" type="button" onClick={openKnowledgeLibrary}>进入知识库核验</button>
-            <button className="secondary-inline-button" disabled={evidenceBusy || !projectId} type="button" onClick={() => evidenceInputRef.current?.click()}>{evidenceBusy ? "处理中..." : "上传文献来源"}</button>
-          </div>
-          {renderFormalEvidence()}
-        </section>
-      );
-    }
-
-    if (activeOutputWorkbench === "data-audit") {
-      return (
-        <section className="output-section output-workbench-panel workbench-amber">
-          <div className="output-section-heading">
-            <div><span className="chat-kicker">专用工作台</span><h3>数据与审计</h3><p className="section-subtitle">负责原始数据上传、质量审计、冻结确认和数据处理边界。</p></div>
-            <button className="plain-action" type="button" onClick={() => { setActiveOutputWorkbench("overview"); setWorkbenchExpanded(false); }}>返回总览</button>
-          </div>
-          {latestDataAudit && (
-            <div className="workbench-stack">
-              <div className="evidence-package-metrics">
-                <div><span>行数</span><strong>{String(dataAuditDetails?.row_count ?? dataManifest?.row_count ?? "-")}</strong></div>
-                <div><span>列数</span><strong>{String(dataAuditDetails?.column_count ?? (auditColumns.length || "-"))}</strong></div>
-                <div><span>重复</span><strong>{String(dataAuditDetails?.duplicate_row_count ?? "-")}</strong></div>
-                <div><span>缺失字段</span><strong>{String(Object.keys(missingByColumn ?? {}).filter((key) => Number(missingByColumn?.[key] ?? 0) > 0).length)}</strong></div>
-              </div>
-              {auditColumns.length > 0 && <div className="workbench-readable-block"><span>字段概览</span><p>{auditColumns.join("、")}</p></div>}
-            </div>
-          )}
-          {datasetDocuments.length > 0 && (
-            <div className="workbench-card-list">
-              {datasetDocuments.map((document) => (
-                <article key={document.document_id}>
-                  <div><strong>{document.title}</strong><span className="review-tag">CSV 数据</span></div>
-                  <p>版本 {document.current_version}，已登记到当前项目，可继续做数据审计、冻结和分析审批。</p>
-                </article>
-              ))}
-            </div>
-          )}
-          <div className="workbench-action-row">
-            <button className="primary-inline-button" type="button" disabled={primaryDataBusy} onClick={() => primaryDataInputRef.current?.click()}>{primaryDataBusy ? "登记中..." : "上传原始数据"}</button>
-            <button className="secondary-inline-button" type="button" onClick={() => setAnalysisWorkbenchOpen(true)}>打开数据审查</button>
-          </div>
-          {analysisState?.pending_approval && (
-            <div className="analysis-approval">
-              <strong>待确认：{analysisState.pending_approval.approval_type}</strong>
-              <p>{analysisState.pending_approval.reason}</p>
-              <div className="analysis-approval-actions">
-                <button className="secondary-inline-button" type="button" disabled={analysisBusy} onClick={() => void decideAnalysisStep("rejected")}>退回修正</button>
-                <button className="primary-inline-button" type="button" disabled={analysisBusy} onClick={() => void decideAnalysisStep("approved")}>确认继续</button>
-              </div>
-            </div>
-          )}
-          {renderPageMaterials("数据处理与审计材料", ["data_analysis", "audit_validation"])}
-        </section>
-      );
-    }
-
-    if (activeOutputWorkbench === "code-review") {
-      return (
-        <section className="output-section output-workbench-panel workbench-violet">
-          <div className="output-section-heading">
-            <div><span className="chat-kicker">专用工作台</span><h3>分析与代码</h3><p className="section-subtitle">代码候选、物理校验、执行环境和 Codex 审核入口集中在这里。</p></div>
-            <button className="plain-action" type="button" onClick={() => { setActiveOutputWorkbench("overview"); setWorkbenchExpanded(false); }}>返回总览</button>
-          </div>
-          <div className="workbench-two-column">
-            <article><strong>Codex 代码候选</strong><p>{runtimeStatus.codex_available ? "可通过对话生成并审核代码候选。" : runtimeReasonLabel(runtimeStatus.codex_reason, "可先使用受控模板，待配置 Codex 后切换。")}</p></article>
-            <article><strong>SciDAVis</strong><p>{runtimeStatus.scidavis_available ? "可导出结果 CSV。" : runtimeReasonLabel(runtimeStatus.scidavis_reason, "未检测到 SciDAVis。")}</p></article>
-            <article><strong>SPSS</strong><p>{runtimeStatus.spss_available ? "SPSS 可用于双引擎校验。" : runtimeReasonLabel(runtimeStatus.spss_reason, "未配置 SPSS。")}</p></article>
-          </div>
-          {codeWorkbenchArtifacts.length > 0 && (
-            <section className="code-candidate-section">
-              <div className="output-section-heading">
-                <div><h3>Codex 代码候选</h3><p className="section-subtitle">代码先在这里编辑和审核，通过后再进入分析执行与结果审查。</p></div>
-                <button
-                  className="primary-inline-button"
-                  type="button"
-                  disabled={agentPlanBusy || !agentOutputs.some((output) => output.artifact_ids.some((id) => codeWorkbenchArtifacts.some((artifact) => artifact.artifact_id === id)))}
-                  onClick={() => {
-                    const matching = agentOutputs.filter((output) => output.artifact_ids.some((id) => codeWorkbenchArtifacts.some((artifact) => artifact.artifact_id === id)));
-                    void (async () => {
-                      for (const output of matching) {
-                        const matchingArtifactIds = output.artifact_ids.filter((id) => codeWorkbenchArtifacts.some((artifact) => artifact.artifact_id === id));
-                        await decideAgentOutput(output, "apply", matchingArtifactIds);
-                      }
-                    })();
-                  }}
-                >
-                  统一通过候选
-                </button>
-              </div>
-              <div className="code-candidate-list">
-                {codeWorkbenchArtifacts.slice(-8).map((artifact) => {
-                  const sourceCode = codeTextForArtifact(artifact);
-                  const draft = codeArtifactDrafts[artifact.artifact_id] ?? sourceCode;
-                  const expanded = expandedCodeArtifactId === artifact.artifact_id;
-                  return (
-                    <article className={expanded ? "code-candidate-card expanded" : "code-candidate-card"} key={artifact.artifact_id}>
-                      <div className="code-candidate-heading">
-                        <div><strong>{codeWorkbenchArtifactLabels[artifact.artifact_type] ?? artifact.artifact_type}</strong><small>{sourceCode ? "可编辑候选" : "结构化审查产物"}</small></div>
-                        <button className="plain-action" type="button" onClick={() => setExpandedCodeArtifactId(expanded ? null : artifact.artifact_id)}>{expanded ? "< 收起详情" : "> 查看详情"}</button>
-                      </div>
-                      {sourceCode ? (
-                        <>
-                          <textarea className="code-candidate-editor" value={draft} onChange={(event) => setCodeArtifactDrafts((current) => ({ ...current, [artifact.artifact_id]: event.target.value }))} rows={10} />
-                          <div className="code-candidate-actions">
-                            <button
-                              className="secondary-inline-button"
-                              type="button"
-                              disabled={codeSaveBusy === artifact.artifact_id || draft === sourceCode || !auth?.access_token}
-                              onClick={() => void saveCodeArtifactVersion(artifact, draft)}
-                            >
-                              {codeSaveBusy === artifact.artifact_id ? "保存中..." : "保存候选版本"}
-                            </button>
-                          </div>
-                        </>
-                      ) : <p>{cleanResearchPresentation(previewValueText(artifact.body))}</p>}
-                      {expanded && (
-                        <div className="code-candidate-details">
-                          {readableArtifactFields(artifact).map(([key, value]) => <div key={key}><strong>{key}</strong><span>{cleanResearchPresentation(value)}</span></div>)}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-              {codeSaveError && <p className="workflow-control-error" role="alert">{codeSaveError}</p>}
-              {analysisState?.statistical_result_card && (
-                <div className="code-result-actions">
-                  <strong>分析结果</strong>
-                  <span>结果卡已生成，可导出为 SciDAVis 文件继续复核。</span>
-                  <button className="secondary-inline-button" type="button" disabled={scidavisBusy} onClick={() => void exportResultForSciDAVis()}>
-                    {scidavisBusy ? "导出中..." : "导出到 SciDAVis"}
-                  </button>
-                </div>
-              )}
-            </section>
-          )}
-          <section className="physics-validator-section">
-            <h3>Physics-STEM 代码校验</h3>
-            <label className="document-editor-label">Python 代码
-              <textarea className="physics-code-input" value={physicsSource} onChange={(event) => setPhysicsSource(event.target.value)} rows={7} />
-            </label>
-            <label className="document-editor-label">物理公式
-              <textarea className="physics-code-input physics-equation-input" value={physicsEquations} onChange={(event) => setPhysicsEquations(event.target.value)} rows={3} />
-            </label>
-            <button className="primary-inline-button" type="button" disabled={physicsBusy || !auth?.access_token} onClick={() => void validatePhysics()}>{physicsBusy ? "校验中..." : "运行物理校验"}</button>
-            {physicsError && <p className="upload-error">{physicsError}</p>}
-            {physicsReport && <div className={`physics-report ${physicsReport.passed ? "physics-report-pass" : "physics-report-fail"}`}><strong>{physicsReport.passed ? "校验通过" : "发现需要处理的问题"}</strong><small>{physicsReport.checks.filter((check) => check.passed).length} 项通过 · {physicsReport.finding_codes.length} 项提醒</small></div>}
-          </section>
-          {renderPageMaterials("代码与分析候选", ["codex", "data_analysis"])}
-        </section>
-      );
-    }
-
-    if (activeOutputWorkbench === "final-review") {
-      const currentStudyQuestion = asText(latestResearchQuestion?.body.primary_question)
-        ?? asText(latestResearchQuestion?.body.title)
-        ?? "尚未登记主要研究问题";
-      const studyDesign = asText(latestStudyProtocol?.body.design_type)
-        ?? "尚未确认研究设计";
-      const dataVersion = dataManifest
-        ? `v${String(dataManifest.version ?? dataManifest.dataset_version ?? 1)} · ${String(dataManifest.row_count ?? dataAuditDetails?.row_count ?? "-")} 行`
-        : datasetDocuments.length
-          ? `${datasetDocuments.length} 份数据资料已登记`
-          : "尚未登记分析数据";
-      const statisticalResult = analysisState?.statistical_result_card;
-      const reviewItems = [
-        {
-          title: "研究问题与方法",
-          status: latestResearchQuestion && latestStudyProtocol ? "已具备" : "待补充",
-          tone: latestResearchQuestion && latestStudyProtocol ? "verified" : "review",
-          content: `${currentStudyQuestion}；研究设计：${studyDesign}。`,
-        },
-        {
-          title: "证据与引用",
-          status: formalEvidence.length ? `${formalEvidence.length} 条正式证据` : "待核验",
-          tone: formalEvidence.length ? "verified" : "review",
-          content: formalEvidence.length
-            ? "正式证据已进入项目证据链，可继续展开查看来源定位和主张绑定。"
-            : `${citations.length} 条本轮引用仍属于探索材料，需完成来源核验。`,
-        },
-        {
-          title: "数据版本",
-          status: dataManifest || datasetDocuments.length ? "已登记" : "待上传",
-          tone: dataManifest || datasetDocuments.length ? "verified" : "review",
-          content: dataVersion,
-        },
-        {
-          title: "统计结果",
-          status: statisticalResult ? "已有结果卡" : "待生成",
-          tone: statisticalResult ? "verified" : "review",
-          content: statisticalResult
-            ? `执行状态：${statisticalResult.execution_status}；${Object.entries(statisticalResult.values).slice(0, 4).map(([key, value]) => `${key}=${formatReviewNumber(value)}`).join("，")}`
-            : "完成数据冻结、代码审查和受控执行后，统计结果会显示在这里。",
-        },
-        {
-          title: "结论边界",
-          status: projectClaims.length ? `${projectClaims.length} 条主张` : "待登记",
-          tone: projectClaims.length ? "verified" : "review",
-          content: projectClaims.length
-            ? "请逐条检查主张是否超过数据、设计和正式证据能够支持的范围。"
-            : "论文主张尚未登记，暂不能进行结论边界核查。",
-        },
-        {
-          title: "伦理与数据治理",
-          status: activeProject?.abstract ? "项目说明已记录" : "待确认",
-          tone: activeProject?.abstract ? "verified" : "review",
-          content: "确认去标识化、数据授权、访问范围和结果发布边界；正式版本不会因审查通过而自动公开。",
-        },
-      ];
-      return (
-        <section className="output-section output-workbench-panel workbench-slate final-review-workbench">
-          <div className="output-section-heading">
-            <div><span className="chat-kicker">专用工作台</span><h3>最终审查</h3><p className="section-subtitle">把研究问题、证据、数据、结果和结论边界放在同一张审查清单里。</p></div>
-            <button className="plain-action" type="button" onClick={() => { setActiveOutputWorkbench("overview"); setWorkbenchExpanded(false); }}>返回总览</button>
-          </div>
-          <div className="final-review-summary">
-            <div><span>当前阶段</span><strong>{currentStageLabel}</strong></div>
-            <div><span>正式证据</span><strong>{formalEvidence.length} 条</strong></div>
-            <div><span>主张绑定</span><strong>{projectClaims.length} 条</strong></div>
-            <div><span>数据审计</span><strong>{latestDataAudit ? "已记录" : "待完成"}</strong></div>
-          </div>
-          <div className="final-review-grid">
-            {reviewItems.map((item) => (
-              <details className="final-review-item" key={item.title}>
-                <summary>
-                  <span><strong>{item.title}</strong><small>{item.content}</small></span>
-                  <b className={item.tone === "verified" ? "verified-tag" : "review-tag"}>{item.status}</b>
-                </summary>
-                <div className="final-review-item-detail">
-                  <p>{item.content}</p>
-                  {item.title === "证据与引用" && (
-                    <button className="secondary-inline-button" type="button" onClick={() => openDedicatedWorkbench("evidence", "evidence-review")}>查看证据详情</button>
-                  )}
-                  {item.title === "数据版本" && (
-                    <button className="secondary-inline-button" type="button" onClick={() => openDedicatedWorkbench("data", "data-audit")}>打开数据审查</button>
-                  )}
-                  {item.title === "统计结果" && (
-                    <button className="secondary-inline-button" type="button" onClick={() => openDedicatedWorkbench("code", "code-review")}>查看代码与结果</button>
-                  )}
-                </div>
-              </details>
-            ))}
-          </div>
-          <div className="final-review-claims">
-            <div className="workbench-subheading"><span>引用与主张绑定</span><small>{projectClaims.length} 条</small></div>
-            {projectClaims.length ? projectClaims.slice(0, 12).map((claim) => (
-              <details className="paper-binding-detail" key={claim.claim_id}>
-                <summary>
-                  <div><span className="review-tag">{claimSectionLabel(claim.section)}</span><small>{claimStatusLabel(claim.reviewer_status || claim.verification_status)}</small></div>
-                  <p>{cleanResearchPresentation(claim.claim_text)}</p>
-                  <small>证据 {claim.support_evidence_ids.length} · 结果 {claim.support_result_ids.length} · 产物 {claim.support_artifact_ids.length}</small>
-                </summary>
-                <div className="paper-binding-expanded">
-                  <p><strong>主张类型：</strong>{claim.claim_type} · <strong>支持方式：</strong>{claim.support_type}</p>
-                  <p><strong>验证状态：</strong>{claimStatusLabel(claim.verification_status)} · <strong>审核状态：</strong>{claimStatusLabel(claim.reviewer_status)}</p>
-                  <p><strong>证据绑定：</strong>{claim.support_evidence_ids.join("、") || "暂无"}</p>
-                  <p><strong>结果绑定：</strong>{claim.support_result_ids.join("、") || "暂无"}</p>
-                </div>
-              </details>
-            )) : <p className="workbench-muted">当前还没有可供最终审查的主张绑定。</p>}
-          </div>
-          <div className="final-review-actions">
-            <button className="secondary-inline-button" type="button" onClick={() => openDedicatedWorkbench("paper", "paper-review")}>返回论文工作台</button>
-            <button className="secondary-inline-button" type="button" onClick={() => openKnowledgeLibrary()}>查看知识库资产</button>
-            {conversationCommitGate && <button className="primary-inline-button" type="button" disabled={conversationGateBusy} onClick={() => void decideConversationGate("approve", conversationCommitGate)}>确认当前审查</button>}
-            <button
-              className="primary-inline-button"
-              type="button"
-              disabled={!auth?.access_token || reproducibilityBusy || !analysisState?.statistical_result_card || (!selectedDocument && !latestManuscriptArtifact && !draftDocuments.length)}
-              onClick={() => void runReproducibilityReview()}
-            >
-              {reproducibilityBusy ? "审查中..." : "运行复现审查"}
-            </button>
-          </div>
-          {reproducibilityError && <p className="workflow-control-error" role="alert">{reproducibilityError}</p>}
-          {reproducibilityReview && (
-            <div className={`reproducibility-review-result ${reproducibilityReview.outcome.report.overall_recommendation === "PASS" ? "review-pass" : "review-needs-work"}`}>
-              <strong>
-                复现审查：{reproducibilityReview.outcome.report.overall_recommendation === "PASS" ? "通过" : "需要修改"}
-              </strong>
-              <span>
-                {reproducibilityReview.outcome.findings.length
-                  ? `发现 ${reproducibilityReview.outcome.findings.length} 项问题。`
-                  : "当前论文数字与已验证结果卡一致。"}
-              </span>
-              {reproducibilityReview.outcome.findings.slice(0, 4).map((finding) => (
-                <p key={finding.finding_id}>{finding.category}：{finding.description}</p>
-              ))}
-              {reproducibilityReview.approval_request && <small>复现审查通过后，仍需人工确认才能进入下一阶段。</small>}
-            </div>
-          )}
-        </section>
-      );
-    }
-
-    if (activeOutputWorkbench === "paper-review") {
-      return (
-        <section className="output-section output-workbench-panel workbench-rose">
-          <div className="output-section-heading">
-            <div><span className="chat-kicker">专用工作台</span><h3>论文与最终审查</h3><p className="section-subtitle">候选论文、草稿编辑、投稿格式化、LaTeX、引用核验和最终确认都在这里。</p></div>
-            <button className="plain-action" type="button" onClick={() => { setActiveOutputWorkbench("overview"); setWorkbenchExpanded(false); }}>返回总览</button>
-          </div>
-          {draftDocuments.length > 0 || manuscriptCandidates.length > 0 || latestManuscriptArtifact ? (
-            <div className="paper-list">
-              {draftDocuments.map((document) => (
-                <button className="paper-item draft-paper-item" type="button" key={document.document_id} onClick={() => void openDocument(document)}>
-                  <span className="paper-file-icon draft-file-icon">稿</span>
-                  <span><strong>{document.title}</strong><small>版本 {document.current_version} · 可编辑</small></span>
-                  <span className="row-arrow">&gt;</span>
-                </button>
-              ))}
-              {manuscriptCandidates.slice(0, 3).map((output) => {
-                const preview = output.output_previews.find((item) => item.artifact_type === "ManuscriptDraftZh")
-                  ?? output.output_previews.find((item) => item.artifact_type === "ManuscriptOutline");
-                const title = preview && typeof preview.content.title === "string" ? preview.content.title : "候选论文草稿";
-                return (
-                  <div className="paper-item draft-paper-item" key={output.task_id}>
-                    <span className="paper-file-icon draft-file-icon">稿</span>
-                    <span><strong>{title}</strong><small>等待写入草稿并人工编辑</small></span>
-                    <button className="primary-inline-button" type="button" disabled={agentPlanBusy} onClick={() => void applyManuscriptCandidate(output)}>送入论文草稿</button>
-                  </div>
-                );
-              })}
-              {!draftDocuments.length && !manuscriptCandidates.length && latestManuscriptArtifact && (
-                <div className="paper-item draft-paper-item">
-                  <span className="paper-file-icon draft-file-icon">稿</span>
-                  <span><strong>{latestManuscriptTitle}</strong><small>已生成候选稿，尚未写入项目文档</small></span>
-                  <button className="primary-inline-button" type="button" disabled={agentPlanBusy} onClick={() => void applyManuscriptArtifact(latestManuscriptArtifact.artifact_id)}>打开论文</button>
-                </div>
-              )}
-            </div>
-          ) : <div className="empty-output"><span className="empty-symbol">□</span><p>论文候选生成后，会在这里打开、编辑并进入最终审查。</p></div>}
-          {renderPaperWorkbenchEditor()}
-          <div className="publication-target-form">
-            <span>投稿目标</span>
-            <select aria-label="目标期刊" value={publicationTarget} disabled={!projectId || publicationTargetBusy} onChange={(event) => {
-              const journal = event.target.value;
-              setPublicationTarget(journal);
-              setPublicationArticleType(
-                journal === "IEEE Transactions on Education" ? "Application"
-                  : journal === "International Journal of Science and Mathematics Education" ? "Original Research Article"
-                    : journal === "Journal of Science Education and Technology" ? "Original Paper"
-                      : "Research Article",
-              );
-            }}>
-              <option>International Journal of STEM Education</option>
-              <option>IEEE Transactions on Education</option>
-              <option>International Journal of Science and Mathematics Education</option>
-              <option>Journal of Science Education and Technology</option>
-              <option>STEM Education</option>
-            </select>
-            <select aria-label="文章类型" value={publicationArticleType} disabled={!projectId || publicationTargetBusy} onChange={(event) => setPublicationArticleType(event.target.value)}>
-              {publicationTarget === "IEEE Transactions on Education" ? <><option>Application</option><option>Discovery</option><option>Integration</option></> : publicationTarget === "International Journal of Science and Mathematics Education" ? <><option>Original Research Article</option><option>Review Article</option></> : publicationTarget === "Journal of Science Education and Technology" ? <><option>Original Paper</option><option>Review Paper</option></> : <><option>Research Article</option><option>Review Article</option></>}
-            </select>
-            <button className="secondary-inline-button" type="button" disabled={!projectId || publicationTargetBusy} onClick={() => void openLatexFormatter()}>{publicationTargetBusy ? "保存中..." : "投稿格式化 / LaTeX"}</button>
-            {publicationTargetError && <p className="workflow-control-error" role="alert">{publicationTargetError}</p>}
-          </div>
-          {renderPageMaterials("引用核验与最终审查", ["paper_editor", "audit_validation"])}
-        </section>
-      );
-    }
-
-    return (
-      <section className="output-section output-workbench-panel">
-        <div className="output-section-heading">
-          <div><span className="chat-kicker">专用工作台</span><h3>{selectedOutputCard.title}</h3><p className="section-subtitle">点击上方卡片进入对应工作台；内容会随左侧对话实时填充。</p></div>
-        </div>
-        <div className="output-workbench-empty">
-          <strong>当前选择：{selectedOutputCard.title}</strong>
-          <p>{selectedOutputCard.summary}</p>
-        </div>
-      </section>
-    );
-  };
-
-  const renderOutputWorkspace = () => (
-    <div className="output-content output-workspace-content">
-      {!workbenchExpanded && <section className="output-section output-board-section">
-        <div className="output-section-heading">
-          <div><h3>产出工作区</h3><p className="section-subtitle">点击分区查看 AI 产出预览；需要完整处理和审核时，再打开专用工作台。</p></div>
-          <span>{outputSectionCards.reduce((total, section) => total + section.count, 0)} 项</span>
-        </div>
-        <div className="output-zone-grid">
-          {outputSectionCards.map((section) => (
-            <button
-              className={`output-zone-card output-zone-${section.tone} ${selectedOutputSection === section.id ? "selected" : ""}`}
-              type="button"
-              key={section.id}
-              onClick={() => {
-                setSelectedOutputSection(section.id);
-                setActiveOutputWorkbench(section.workbench);
-                setWorkbenchExpanded(false);
-                setRightPaneVisible(true);
-              }}
-            >
-              <span className="output-zone-count">{section.count}</span>
-              <strong>{section.title}</strong>
-              <p>{cleanResearchPresentation(section.summary)}</p>
-              <span className="output-zone-footer">
-                <small>{section.action}</small>
-                <span aria-hidden="true">&gt;</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>}
-      {!workbenchExpanded && conversationCommitGate && (
-        <section className="output-section output-confirm-section">
-          <div className="output-section-heading">
-            <div><h3>待人工确认</h3><p className="section-subtitle">{gateActionLabel(conversationCommitGate)}会影响正式研究状态，确认后才继续。</p></div>
-            <span className="review-tag">需要处理</span>
-          </div>
-          <div className="analysis-approval-actions">
-            <button className="secondary-inline-button" type="button" disabled={conversationGateBusy} onClick={() => void decideConversationGate("revise", conversationCommitGate)}>退回修改</button>
-            <button className="primary-inline-button" type="button" disabled={conversationGateBusy} onClick={() => void decideConversationGate("approve", conversationCommitGate)}>{conversationGateBusy ? "处理中..." : "确认继续"}</button>
-          </div>
-        </section>
-      )}
-      {workbenchExpanded ? (
-        <div className="dedicated-workbench-frame">
-          <div className="dedicated-workbench-grid">
-            <aside className="dedicated-workbench-sidebar">
-              <div className="dedicated-workbench-side-heading">
-                <button className="dedicated-back-button" type="button" onClick={() => setWorkbenchExpanded(false)}>&lt; 返回目录</button>
-                <small>{selectedOutputCard.count} 项</small>
-              </div>
-              <div className="dedicated-workbench-nav">
-                {outputSectionCards.map((section) => (
-                  <button
-                    type="button"
-                    key={section.id}
-                    className={section.id === selectedOutputSection ? "selected" : ""}
-                    onClick={() => {
-                      setSelectedOutputSection(section.id);
-                      setActiveOutputWorkbench(section.workbench);
-                    }}
-                  >
-                    <strong>{section.title}</strong>
-                    <small>{section.count} 项</small>
-                  </button>
-                ))}
-              </div>
-              <div className="dedicated-workbench-side-block">
-                <span>版本记录</span>
-                <p>{draftDocuments.length ? `已有 ${draftDocuments.length} 份项目文档` : "当前以候选版本为主"}</p>
-                <small>正式保存前仍可退回修改</small>
-              </div>
-              <div className="dedicated-workbench-side-block">
-                <span>相关产出</span>
-                <p>{projectClaims.length} 条主张 · {formalEvidence.length} 条正式证据</p>
-              </div>
-            </aside>
-            <main className="dedicated-workbench-center">
-              {renderOutputWorkbench()}
-            </main>
-            <aside className="dedicated-workbench-review">
-              <div className="dedicated-workbench-side-heading">
-                <span>审核信息</span>
-                <span className={conversationCommitGate ? "review-tag" : "verified-tag"}>{conversationCommitGate ? "待确认" : "可继续编辑"}</span>
-              </div>
-              <dl className="dedicated-review-list">
-                <div><dt>当前状态</dt><dd>{currentStageLabel}</dd></div>
-                <div><dt>内容来源</dt><dd>{selectedOutputCard.title}</dd></div>
-                <div><dt>证据绑定</dt><dd>{formalEvidence.length || citations.length ? `${formalEvidence.length || citations.length} 条` : "待补充"}</dd></div>
-                <div><dt>主张绑定</dt><dd>{projectClaims.length ? `${projectClaims.length} 条` : "待生成"}</dd></div>
-              </dl>
-              <div className="dedicated-workbench-side-block risk-block">
-                <span>风险提示</span>
-                {activeResponse?.risk_flags.length ? (
-                  <ul>{activeResponse.risk_flags.slice(0, 4).map((flag) => <li key={flag}>{riskFlagText(flag)}</li>)}</ul>
-                ) : <p>当前没有新的风险提示。</p>}
-              </div>
-              <div className="dedicated-workbench-side-block">
-                <span>操作边界</span>
-                <p>模型只生成候选修改，人工确认后才写入项目版本。</p>
-              </div>
-            </aside>
-          </div>
-          <button className="primary-inline-button floating-preview-return" type="button" onClick={() => setWorkbenchExpanded(false)}>&lt; 返回预览</button>
-        </div>
-      ) : renderOutputWorkbenchPreview()}
-    </div>
-  );
-
   const evidenceSearchSummary = (reviewPackage: EvidenceReviewPackage) => {
     const coverage = reviewPackage.body.coverage;
     const added = coverage.new_source_count ?? coverage.source_count;
@@ -3643,35 +2103,16 @@ export function App() {
     return card?.title || sourceRef;
   };
 
-  const citationForEvidence = (
-    sourceTitle: string | undefined,
-    excerpt: string | undefined,
-    evidenceId: string | undefined,
-  ) => citations.find((citation) => (
-    (evidenceId && (citation.canonical_chunk_id === evidenceId || citation.canonical_paper_id === evidenceId))
-    || (sourceTitle && citation.paper_title.includes(sourceTitle))
-    || (excerpt && citation.excerpt.includes(excerpt.slice(0, 48)))
-  )) ?? null;
-
-  const evidencePageFallback = (excerpt: string | undefined) => {
-    const match = excerpt?.match(/\bPage\s+(\d+)(?:\s+of\s+\d+)?/i);
-    return match?.[1] ?? null;
-  };
-
-  const evidenceDoiFallback = (excerpt: string | undefined) => {
-    const match = excerpt?.match(/\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i);
-    return match?.[0] ?? null;
-  };
-
   const focusDialogueCanvas = (orchestration: ConversationCommandResult) => {
     const focus = orchestration.dialogue?.canvas_focus;
     if (!focus) return;
+    setRightPaneVisible(true);
     if (focus === "evidence") {
-      openOutputWorkspace("evidence", "evidence-review");
+      setContextTab("evidence");
     } else if (["data", "execution", "results", "interpretation"].includes(focus)) {
-      openOutputWorkspace("data", "data-audit");
+      setContextTab("agent-outputs");
     } else {
-      openOutputWorkspace("questions", "research-design");
+      setContextTab("agent-work");
     }
   };
 
@@ -3791,7 +2232,11 @@ export function App() {
           // The server's auto policy is deliberately verb-based: ordinary
           // questions stay discussion, while an explicit instruction such as
           // "start the search" can still become a research run naturally.
-          requestedInteractionMode === "workflow" ? "workflow" : "auto",
+          // The composer is a discussion surface by default. Sending
+          // ``auto`` here lets the planner reorder the guided brief and can
+          // make a topic-specific answer look like an unrelated intake turn.
+          // Only an explicit workflow action should cross that boundary.
+          requestedInteractionMode === "workflow" ? "workflow" : "discussion",
           mode,
           conversationId,
           trimmed,
@@ -3807,16 +2252,12 @@ export function App() {
         // can return durable context, but they must render as ordinary chat
         // and must not refresh or advance the workflow canvas.
         if (orchestration.answer && (orchestration.kind === "qa" || orchestration.dialogue?.mode === "discussion")) {
-          await refreshProjectOutputs(true);
           setConversationControl(null);
           setConversationGateError("");
           setConversationId(orchestration.answer.conversation_id);
           setLastResponse(orchestration.answer);
           if (auth?.access_token) {
             void workflowApi.getResearchCanvas(projectId).then(setResearchCanvas).catch(() => undefined);
-            void workflowApi.listArtifactContents(projectId)
-              .then((items) => setOrchestrationArtifacts(items as OrchestrationArtifactContent[]))
-              .catch(() => undefined);
           }
           if (orchestration.collaboration?.belief_revisions.length) {
             setContextTab("agent-work");
@@ -3889,7 +2330,6 @@ export function App() {
           response: orchestration.answer,
           orchestration,
         }]);
-        await refreshProjectOutputs(true);
         return;
       }
       const response = auth?.access_token
@@ -3923,7 +2363,6 @@ export function App() {
         content: response.answer,
         response,
       }]);
-      await refreshProjectOutputs(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "对话服务暂时不可用";
       setMessages((current) => [...current, {
@@ -4147,127 +2586,6 @@ export function App() {
     }
   };
 
-  const saveCodeArtifactVersion = async (
-    artifact: OrchestrationArtifactContent,
-    sourceCode: string,
-  ) => {
-    if (
-      !projectId
-      || !auth?.access_token
-      || !sourceCode.trim()
-      || codeSaveBusy === artifact.artifact_id
-    ) return;
-    setCodeSaveBusy(artifact.artifact_id);
-    setCodeSaveError("");
-    try {
-      const saved = await workflowApi.saveCodeArtifactVersion(
-        projectId,
-        artifact.artifact_id,
-        sourceCode,
-        "研究者在分析与代码工作台编辑代码候选",
-      );
-      setCodeArtifactDrafts((current) => ({
-        ...current,
-        [artifact.artifact_id]: String(saved.content.body.source_code ?? sourceCode),
-      }));
-      const contents = await workflowApi.listArtifactContents(projectId);
-      setOrchestrationArtifacts(contents as OrchestrationArtifactContent[]);
-    } catch (error) {
-      setCodeSaveError(error instanceof Error ? error.message : "代码候选保存失败");
-    } finally {
-      setCodeSaveBusy(null);
-    }
-  };
-
-  const extractManuscriptNumbers = (content: string) => {
-    const matches = content.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi) ?? [];
-    return matches
-      .map((item) => Number(item))
-      .filter((item) => Number.isFinite(item));
-  };
-
-  const runReproducibilityReview = async () => {
-    const statisticalResult = analysisState?.statistical_result_card;
-    const selectedManuscript = selectedDocument?.document.document_type === "manuscript"
-      ? selectedDocument
-      : null;
-    const manuscriptDocument = selectedManuscript?.document ?? draftDocuments[0] ?? null;
-    const manuscriptArtifact = latestManuscriptArtifact;
-    if (!projectId || !statisticalResult || (!manuscriptDocument && !manuscriptArtifact)) return;
-    setReproducibilityBusy(true);
-    setReproducibilityError("");
-    try {
-      const manuscript = selectedManuscript ?? (
-        manuscriptDocument && auth?.access_token
-          ? {
-            document: manuscriptDocument,
-            version: await authApi.getDocumentVersion(
-              auth.access_token,
-              projectId,
-              manuscriptDocument.document_id,
-              manuscriptDocument.current_version,
-            ),
-          }
-          : null
-      );
-      const manuscriptContent = manuscript
-        ? manuscript === selectedManuscript
-          ? documentContentDraft
-          : manuscript.version?.content ?? ""
-        : JSON.stringify(manuscriptArtifact?.body ?? {});
-      const numbers = extractManuscriptNumbers(manuscriptContent);
-      const numericClaims = Object.entries(statisticalResult.values)
-        .map(([resultKey, expected], index) => {
-          const reportedValue = numbers.find((value) => Math.abs(value - expected) <= 1e-8);
-          if (reportedValue === undefined) return null;
-          return {
-          claim_ref: `claim://${projectId}/workbench-${index + 1}`,
-          result_card_ref: `result-card://${statisticalResult.result_id}`,
-          result_key: resultKey,
-            reported_value: reportedValue,
-          };
-        })
-        .filter((claim): claim is {
-          claim_ref: string;
-          result_card_ref: string;
-          result_key: string;
-          reported_value: number;
-        } => claim !== null);
-      if (!numericClaims.length) {
-        setReproducibilityError("未在当前论文正文中识别到与已验证结果卡对应的数字，请先保存正文后再审查。");
-        return;
-      }
-      const result = await workflowApi.runReproducibilityReview(projectId, {
-        manuscriptRef: manuscript
-          ? `document://${manuscript.document.document_id}/v${manuscript.version?.version ?? manuscript.document.current_version}`
-          : manuscriptArtifact?.artifact_id ?? "manuscript-candidate",
-        numericClaims,
-      });
-      setReproducibilityReview(result);
-      setWorkflowState(result.workflow_state as WorkflowState);
-      setWorkflowSnapshot(result.workflow_state);
-      setAnalysisState(result.workflow_state.data_pipeline);
-      setAnalysisStage(result.workflow_state.current_stage);
-      setOrchestrationArtifacts(
-        await workflowApi.listArtifactContents(projectId) as OrchestrationArtifactContent[],
-      );
-    } catch (error) {
-      setReproducibilityError(error instanceof Error ? error.message : "复现审查失败");
-    } finally {
-      setReproducibilityBusy(false);
-    }
-  };
-
-  const selectWorkspaceMode = (nextMode: Exclude<WorkspaceMode, null>) => {
-    setWorkspaceMode(nextMode);
-    window.history.pushState({}, "", `/workspace/${nextMode}`);
-  };
-
-  const openWorkspaceSelector = () => {
-    setWorkspaceMode(null);
-    window.history.pushState({}, "", "/workspace/select");
-  };
-
   const signIn = async () => {
     if (!loginValue.trim() || !passwordValue.trim()) return;
     setAuthBusy(true);
@@ -4276,42 +2594,8 @@ export function App() {
       const next = await authApi.login({ login: loginValue.trim(), password: passwordValue });
       saveAuth(next);
       setAuth(next);
-      setWorkspaceMode(null);
-      window.history.replaceState({}, "", "/workspace/select");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "登录失败");
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const openLatexFormatter = async () => {
-    if (projectId && publicationTarget && publicationArticleType) {
-      await configurePublicationTarget();
-    }
-    window.dispatchEvent(new CustomEvent("stem-sci:open-latex"));
-  };
-
-  const signUp = async () => {
-    if (!registerUsername.trim() || !registerEmail.trim() || !passwordValue.trim()) {
-      setAuthError("请填写用户名、邮箱和密码");
-      return;
-    }
-    setAuthBusy(true);
-    setAuthError("");
-    try {
-      const next = await authApi.register({
-        username: registerUsername.trim(),
-        email: registerEmail.trim(),
-        password: passwordValue,
-        display_name: registerDisplayName.trim() || null,
-      });
-      saveAuth(next);
-      setAuth(next);
-      setWorkspaceMode(null);
-      window.history.replaceState({}, "", "/workspace/select");
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "注册失败");
     } finally {
       setAuthBusy(false);
     }
@@ -4325,8 +2609,6 @@ export function App() {
     }
     clearAuth();
     setAuth(null);
-    setWorkspaceMode(null);
-    window.history.replaceState({}, "", "/");
   };
 
   const switchProject = (nextProjectId: string) => {
@@ -4341,8 +2623,6 @@ export function App() {
     setOrchestrationTasks([]);
     setEvidenceReviewPackage(null);
     setProjectClaims([]);
-    setReproducibilityReview(null);
-    setReproducibilityError("");
     setConversationGateError("");
     setLastResponse(demoMode ? demoQAResponse : null);
     const project = projects.find((item) => item.project_id === nextProjectId);
@@ -4464,14 +2744,6 @@ export function App() {
       const next = await workflowApi.uploadControllerRawCsv(projectId, file);
       setAnalysisState(next);
       setAnalysisStage(next.stage);
-      setWorkflowSnapshot((current) => current ? {
-        ...current,
-        current_stage: next.stage,
-        data_pipeline: next,
-      } : current);
-      if (auth?.access_token) {
-        setDocuments(await authApi.listDocuments(auth.access_token, projectId));
-      }
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "实验数据上传失败");
     } finally {
@@ -4489,15 +2761,6 @@ export function App() {
       const next = await workflowApi.decideControllerDataPipeline(projectId, decision, decidedBy);
       setAnalysisState(next);
       setAnalysisStage(next.stage);
-      setWorkflowSnapshot((current) => current ? {
-        ...current,
-        current_stage: next.stage,
-        data_pipeline: next,
-      } : current);
-      await refreshWorkflow();
-      if (auth?.access_token) {
-        setDocuments(await authApi.listDocuments(auth.access_token, projectId));
-      }
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "数据分析审批失败");
     } finally {
@@ -4876,62 +3139,17 @@ export function App() {
   };
 
   const workspaceStyle = {
-    gridTemplateColumns: workbenchExpanded
-      ? `${sidebarVisible ? `${paneWidths.sidebar}px` : "0px"} minmax(0, 1fr)`
-      : [
-        sidebarVisible ? `${paneWidths.sidebar}px 8px` : "0px 0px",
-        rightPaneVisible
-          ? "minmax(420px, 1fr) 8px"
-          : "minmax(0, 1fr)",
-        rightPaneVisible ? `${paneWidths.output}px` : "",
-      ].filter(Boolean).join(" "),
+    gridTemplateColumns: [
+      sidebarVisible ? `${paneWidths.sidebar}px 8px` : "0px 0px",
+      rightPaneVisible
+        ? "minmax(420px, 1fr) 8px"
+        : "minmax(0, 1fr)",
+      rightPaneVisible ? `${paneWidths.output}px` : "",
+    ].filter(Boolean).join(" "),
   };
-  const activeStage = workflowState?.current_stage ?? orchestrationState?.route_decision?.primary_route ?? "INTAKE";
-  const activeStageLabel: Record<string, string> = {
-    INTAKE: "研究接入",
-    SCOPED: "范围确认",
-    EVIDENCE_READY: "证据综述",
-    STUDY_PROTOCOL_APPROVED: "研究设计",
-    DATA_READY: "数据准备",
-    ANALYZED: "分析执行",
-    DRAFTED: "论文草稿",
-    VERIFIED: "独立审查",
-    RELEASED: "发布准备",
-    WAITING_HUMAN: "等待研究确认",
-    REWORK: "需要返工",
-    BLOCKED: "流程已阻断",
-  };
-  const currentStageLabel = activeStageLabel[activeStage] ?? activeStage;
-  const evidenceCount = evidenceReviewPackage?.body.coverage.evidence_count ?? citations.length;
-  const projectDocumentCount = activeDocuments.length;
-  const currentGateLabel = conversationControl?.gate ? gateActionLabel(conversationControl.gate) : "暂无待确认事项";
-  const backendStatusLabel = backendStatus === "online"
-    ? backendHealth?.service === "stem-sci-demo" ? "演示数据已就绪" : "后端服务已连接"
-    : backendStatus === "checking" ? "正在检测后端" : "后端暂不可用";
-
-  if (auth && workspaceMode === null) {
-    return (
-      <WorkspaceModeSelector
-        user={auth.user}
-        onSelect={selectWorkspaceMode}
-        onSignOut={() => void signOut()}
-      />
-    );
-  }
-
-  if (auth && workspaceMode === "teaching") {
-    return (
-      <TeachingWorkspaceFrame
-        url={import.meta.env.VITE_STARMAP_WEB_URL || "http://127.0.0.1:5178"}
-        userLabel={auth.user.display_name ?? auth.user.username}
-        onBack={openWorkspaceSelector}
-        onSignOut={() => void signOut()}
-      />
-    );
-  }
 
   return (
-    <div className={`research-app ${rightPaneVisible ? "" : "research-app-two-pane"}${workbenchExpanded ? " research-app-workbench-expanded" : ""}`} style={workspaceStyle}>
+    <div className={`research-app ${rightPaneVisible ? "" : "research-app-two-pane"}`} style={workspaceStyle}>
       <aside className={`research-sidebar ${sidebarVisible ? "" : "research-sidebar-hidden"}`}>
         <div className="research-brand">
           <div className="research-logo">S</div>
@@ -4945,7 +3163,7 @@ export function App() {
             title="隐藏工作区"
             onClick={() => setSidebarVisible(false)}
           >
-            &lt;
+            ←
           </button>
         </div>
 
@@ -4956,21 +3174,25 @@ export function App() {
 
         <div className="sidebar-section">
           <span className="sidebar-label">工作区</span>
-          <button
-            className={!rightPaneVisible ? "sidebar-link sidebar-link-active" : "sidebar-link"}
-            type="button"
-            onClick={focusResearchDialogue}
-          >
-            <span className="ui-icon">◌</span>
-            研究对话
+          <button className="sidebar-link sidebar-link-active" type="button">
+            <span className="ui-icon">⌕</span>
+            研究助手
           </button>
-          <button className={view === "audit" && rightPaneVisible ? "sidebar-link sidebar-link-active" : "sidebar-link"} type="button" onClick={() => openOutputWorkspace(selectedOutputSection, activeOutputWorkbench)}>
-            <span className="ui-icon">✦</span>
-            产出工作区
-          </button>
-          <button className={view === "knowledge" && rightPaneVisible ? "sidebar-link sidebar-link-active" : "sidebar-link"} type="button" onClick={openKnowledgeLibrary}>
+          <button className={view === "knowledge" ? "sidebar-link sidebar-link-active" : "sidebar-link"} type="button" onClick={() => { setView("knowledge"); setContextTab("evidence"); setRightPaneVisible(true); }}>
             <span className="ui-icon">▱</span>
             知识库
+          </button>
+          <button className={view === "codex" ? "sidebar-link sidebar-link-active" : "sidebar-link"} type="button" onClick={() => { setView("codex"); setContextTab("workspace"); setRightPaneVisible(true); }}>
+            <span className="ui-icon">⌘</span>
+            分析工作区
+          </button>
+          <button className={view === "analysis" ? "sidebar-link sidebar-link-active" : "sidebar-link"} type="button" onClick={() => { setView("analysis"); setContextTab("workspace"); setRightPaneVisible(true); }}>
+            <span className="ui-icon">◫</span>
+            数据分析
+          </button>
+          <button className={view === "audit" ? "sidebar-link sidebar-link-active" : "sidebar-link"} type="button" onClick={() => { setView("audit"); setContextTab("workspace"); setRightPaneVisible(true); }}>
+            <span className="ui-icon">✦</span>
+            研究产出
           </button>
         </div>
 
@@ -4985,7 +3207,7 @@ export function App() {
               <strong>{activeProject?.title ?? "选择项目"}</strong>
               <small>{activeProject?.research_direction ?? "开始一个研究项目"}</small>
             </span>
-            <span className="chevron">{projectMenuOpen ? "<" : ">"}</span>
+            <span className="chevron">{projectMenuOpen ? "⌃" : "⌄"}</span>
           </button>
           {projectMenuOpen && (
             <div className="project-menu">
@@ -5029,15 +3251,7 @@ export function App() {
         </div>
 
         <div className="sidebar-bottom">
-          {auth && (
-            <button className="workspace-switch-button" type="button" onClick={openWorkspaceSelector}>
-              切换助研 / 助学
-            </button>
-          )}
-          <div className={`service-status service-status-${backendStatus}`}>
-            <span className="status-pulse" />
-            {backendStatusLabel}
-          </div>
+          <div className="service-status"><span className="status-pulse" /> 后端服务已连接</div>
           {auth ? (
             <button className="account-row" type="button" onClick={() => void signOut()}>
               <span className="account-avatar">{(auth.user.display_name ?? auth.user.username).slice(0, 1)}</span>
@@ -5060,72 +3274,32 @@ export function App() {
           title="显示工作区"
           onClick={() => setSidebarVisible(true)}
         >
-          &gt; <span>显示工作区</span>
+          → <span>显示工作区</span>
         </button>
       )}
 
-      <main className={topResearchInfoOpen ? "chat-pane chat-pane-with-progress" : "chat-pane"}>
-        <section className={topResearchInfoOpen ? "research-overview" : "research-overview research-overview-collapsed"} aria-label="当前研究概览">
-          <div className="overview-lead">
-            <span className="overview-kicker">当前研究概览</span>
-            <strong>{currentGateLabel}</strong>
-            {topResearchInfoOpen && (
-              <p>
-                {conversationControl?.gate
-                  ? "右侧已准备好需要你确认的研究材料。"
-                  : "从一个问题开始，系统会把回答、证据和后续研究动作连起来。"}
-              </p>
-            )}
-          </div>
-          {topResearchInfoOpen ? (
-            <>
-              <div className="overview-stats">
-                <div><span>项目资料</span><strong>{projectDocumentCount}</strong><small>份</small></div>
-                <div><span>本轮证据</span><strong>{evidenceCount}</strong><small>条</small></div>
-                <div><span>研究阶段</span><strong>{currentStageLabel}</strong><small>{auth ? "已同步" : "本地预览"}</small></div>
-              </div>
-              <div className="overview-actions">
-                <button type="button" onClick={openKnowledgeLibrary}><span aria-hidden="true">⌕</span> 查证据</button>
-                <button type="button" onClick={() => openOutputWorkspace("data", "data-audit")}><span aria-hidden="true">◫</span> 做分析</button>
-                <button type="button" onClick={() => openOutputWorkspace("paper", "paper-review")}><span aria-hidden="true">✦</span> 看产出</button>
-              </div>
-            </>
-          ) : (
-            <button className="overview-expand-inline" type="button" onClick={() => setTopResearchInfoOpen(true)}>
-              {currentStageLabel} · {projectDocumentCount} 份资料 · {evidenceCount} 条证据
-            </button>
-          )}
-          <button
-            className="header-icon-button research-info-toggle"
-            type="button"
-            title={topResearchInfoOpen ? "收起研究信息" : "展开研究信息"}
-            aria-label={topResearchInfoOpen ? "收起研究信息" : "展开研究信息"}
-            onClick={() => setTopResearchInfoOpen((open) => !open)}
-          >
-            {topResearchInfoOpen ? "<" : ">"}
-          </button>
-        </section>
-
-        {topResearchInfoOpen && (
-          <ResearchProgressBoard
-            response={lastResponse}
-            workflow={workflowState}
-            orchestration={orchestrationState}
-            evidenceReview={evidenceReviewPackage}
-            blockers={projectBlockers}
-            tasks={orchestrationTasks}
-            onRetryTask={retryOrchestrationTask}
-            busy={busy}
-          />
-        )}
-
-        <div className="chat-dialogue-bar">
+      <main className="chat-pane">
+        <header className="chat-header">
           <div>
-            <span className="chat-kicker">RESEARCH DIALOGUE</span>
-            <strong>研究对话</strong>
+            <span className="chat-kicker">研究助手</span>
+            <h1>{activeProject?.title ?? "科研智能工作台"}</h1>
           </div>
-          <span>{messages.filter((message) => message.role === "user").length} 轮</span>
-        </div>
+          <div className="chat-header-actions">
+            <span className={mode === "formal" ? "mode-pill formal" : "mode-pill"}>{mode === "formal" ? "正式证据模式" : "探索模式"}</span>
+            <button className="header-icon-button" type="button" title="清空当前对话" onClick={resetConversation}>⌫</button>
+          </div>
+        </header>
+
+        <ResearchProgressBoard
+          response={lastResponse}
+          workflow={workflowState}
+          orchestration={orchestrationState}
+          evidenceReview={evidenceReviewPackage}
+          blockers={projectBlockers}
+          tasks={orchestrationTasks}
+          onRetryTask={retryOrchestrationTask}
+          busy={busy}
+        />
 
         <section className="chat-thread" aria-live="polite">
           {messages.length === 1 && messages[0].id === "welcome" && (
@@ -5148,7 +3322,7 @@ export function App() {
                     <span className="capability-icon">{card.icon}</span>
                     <strong>{card.title}</strong>
                     <p>{card.description}</p>
-                    <span className="capability-arrow">开始使用 &gt;</span>
+                    <span className="capability-arrow">开始使用 →</span>
                   </button>
                 ))}
               </div>
@@ -5191,7 +3365,7 @@ export function App() {
                     )}
                     {dialogue.question && (isGuidedQuestion || isDecision || dialogue.user_action_required) && (
                       <div className="dialogue-prompt">
-                        <span>{isDecision ? "这里需要你来定" : "我想接着确认一个细节"}</span>
+                        <span>{dialoguePromptLabel(turnRole)}</span>
                         <p className="dialogue-question">{cleanResearchPresentation(dialogue.question)}</p>
                         {dialogue.why_now && isDecision && (
                           <small>{cleanResearchPresentation(dialogue.why_now)}</small>
@@ -5210,7 +3384,7 @@ export function App() {
                               const citation = message.response?.citations.find((candidate) =>
                                 item.evidence_id && (candidate.canonical_chunk_id === item.evidence_id || candidate.canonical_paper_id === item.evidence_id),
                               );
-                              if (citation) openCitationDetails(citation);
+                              if (citation) setSelectedCitation(citation);
                             }}
                             disabled={!message.response?.citations.some((candidate) => item.evidence_id && (candidate.canonical_chunk_id === item.evidence_id || candidate.canonical_paper_id === item.evidence_id))}
                             title="打开来源定位"
@@ -5350,6 +3524,16 @@ export function App() {
                     >
                       ↥ <span>{primaryDataBusy ? "登记中" : "上传数据"}</span>
                     </button>
+                    <input
+                      ref={primaryDataInputRef}
+                      className="visually-hidden"
+                      type="file"
+                      accept=".pdf,.docx,.txt,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void uploadPrimaryData(file);
+                      }}
+                    />
                   </>
                 )}
                 <button
@@ -5368,22 +3552,7 @@ export function App() {
                   accept=".pdf,.doc,.docx,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/csv,image/*"
                   onChange={(event) => selectChatFiles(event.target.files)}
                 />
-                <button
-                  className="composer-tool"
-                  type="button"
-                  title="打开知识库证据"
-                  onClick={openKnowledgeLibrary}
-                >
-                  ▱ <span>知识库</span>
-                </button>
-                <button
-                  className="composer-tool"
-                  type="button"
-                  title="打开产出工作区"
-                  onClick={() => openOutputWorkspace(selectedOutputSection, activeOutputWorkbench)}
-                >
-                  ✦ <span>产出</span>
-                </button>
+                <button className="composer-tool" type="button" title="引用知识库">▱ <span>知识库</span></button>
                 <button
                   className="composer-tool"
                   type="button"
@@ -5400,39 +3569,125 @@ export function App() {
               <button className="send-button" type="button" disabled={busy || !question.trim() || !activeProject} onClick={() => void submitQuestion()} title={activeProject ? "发送消息" : "请先选择项目"}>↑</button>
             </div>
           </div>
-          <input
-            ref={primaryDataInputRef}
-            className="visually-hidden"
-            type="file"
-            accept=".pdf,.docx,.txt,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void uploadPrimaryData(file);
-            }}
-          />
-          <input
-            ref={evidenceInputRef}
-            className="visually-hidden"
-            type="file"
-            accept=".pdf,.txt,.md,.json,application/pdf,text/plain,application/json"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void uploadEvidenceSource(file);
-            }}
-          />
           <p className="composer-note">研究状态会在后台随对话更新；数据冻结、执行和发布等高风险动作仍会单独向你确认。</p>
         </section>
       </main>
 
       <div className="pane-resizer pane-resizer-output" role="separator" aria-label="调整右侧栏宽度" onPointerDown={() => setDraggingPane("output")} />
-      <aside className={`output-pane ${view === "knowledge" ? "output-pane-knowledge" : ""} ${rightPaneVisible ? "" : "output-pane-hidden"}`}>
+      <aside className={`output-pane ${rightPaneVisible ? "" : "output-pane-hidden"}`}>
         <div className="output-header">
           <div>
-            <span className="chat-kicker">{view === "knowledge" ? "长期知识库" : "当前对话产出"}</span>
-          <h2>{view === "knowledge" ? "知识库" : selectedOutputCard.title}</h2>
+            <span className="chat-kicker">研究上下文</span>
+          <h2>{evidenceReviewPending ? "研究产出" : contextTab === "agent-work" || contextTab === "agent-plan" || contextTab === "agent-outputs" ? "研究产出" : contextTab === "evidence" ? "知识库证据" : view === "codex" ? "分析工作区" : "数据分析"}</h2>
           </div>
-          <button className="header-icon-button" type="button" title="隐藏右侧面板，进入双栏模式" onClick={focusResearchDialogue}>&gt;</button>
+          <button className="header-icon-button" type="button" title="隐藏右侧面板，进入双栏模式" onClick={() => setRightPaneVisible(false)}>→</button>
         </div>
+        {researchEvents.length > 0 && !(view === "audit" && contextTab === "workspace") && (
+          <section className="research-event-strip" aria-label="研究任务动态">
+            <div className="output-section-heading"><div><span className="chat-kicker">LIVE RESEARCH LOG</span><h3>研究动态</h3></div><span>{researchEvents.length} 条</span></div>
+            <div className="research-event-list">
+              {researchEvents.slice().reverse().slice(0, 6).map((event) => (
+                <div className="research-event-item" key={event.event_id}>
+                  <span className="research-event-dot" aria-hidden="true" />
+                  <div><strong>{researchEventLabel(event)}</strong><small>{new Date(event.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {view === "knowledge" && contextTab === "evidence" && conversationTimeline.length > 0 && (
+          <section className="research-event-strip conversation-history-panel" aria-label="完整研究对话记录">
+            <div className="output-section-heading">
+              <div><span className="chat-kicker">CONVERSATION JOURNAL</span><h3>完整研究对话</h3></div>
+              <span>{orchestrationHistory.length} 轮 · {researchEvents.length} 步</span>
+            </div>
+            <div className="conversation-history-list">
+              {conversationTimeline.map((item) => {
+                if (item.kind === "event") {
+                  const event = item.event;
+                  return (
+                    <article className="conversation-history-item conversation-history-event" key={`event-${event.event_id}`}>
+                      <div className="conversation-history-meta">
+                        <strong>研究步骤</strong>
+                        <small>{new Date(event.created_at).toLocaleString()}</small>
+                        <span className="review-tag">{researchEventLabel(event)}</span>
+                      </div>
+                      <p><b>系统：</b>{researchEventNarrative(event)}</p>
+                      <small className="conversation-history-boundary">执行者：{event.actor} · 状态版本：{event.state_revision}</small>
+                    </article>
+                  );
+                }
+                const turn = item.turn;
+                const response = asRecord(turn.response);
+                const gate = asRecord(response?.gate);
+                const control = asRecord(response?.control_state);
+                const dialogue = asRecord(response?.dialogue);
+                const dialogueSuggestions = Array.isArray(dialogue?.suggestions)
+                  ? dialogue.suggestions
+                    .map((item) => asRecord(item))
+                    .map((item) => asText(item?.label))
+                    .filter((item): item is string => Boolean(item))
+                  : [];
+                const streams = Array.isArray(control?.workstreams) ? control.workstreams : [];
+                const stream = asRecord(streams[0]);
+                return (
+                  <article className="conversation-history-item" key={`turn-${turn.turn_id}`}>
+                    <div className="conversation-history-meta">
+                      <strong>第 {orchestrationHistory.findIndex((entry) => entry.turn_id === turn.turn_id) + 1} 轮</strong>
+                      <small>{new Date(turn.created_at).toLocaleString()}</small>
+                      {turn.status !== "completed" && <span className="review-tag">{turn.status}</span>}
+                    </div>
+                    <p><b>你：</b>{cleanResearchPresentation(turn.message)}</p>
+                    <p><b>系统：</b>{cleanResearchPresentation(asText(response?.message) ?? "本轮没有返回新的正文；请查看当前研究状态和下一步判断。")}</p>
+                    {asText(dialogue?.summary) && (
+                      <p><b>当前判断：</b>{cleanResearchPresentation(asText(dialogue?.summary) ?? "")}</p>
+                    )}
+                    {asText(dialogue?.question) && (
+                      <p><b>需要决定：</b>{cleanResearchPresentation(asText(dialogue?.question) ?? "")}</p>
+                    )}
+                    {dialogueSuggestions.length > 0 && (
+                      <small className="conversation-history-boundary">当时可选路径：{dialogueSuggestions.join(" · ")}</small>
+                    )}
+                    {Array.isArray(dialogue?.tradeoffs) && dialogue.tradeoffs.length > 0 && (
+                      <small className="conversation-history-boundary">取舍：{dialogue.tradeoffs.map((item) => asText(item)).filter((item): item is string => Boolean(item)).join(" · ")}</small>
+                    )}
+                    {asRecord(dialogue?.version_change) && (
+                      <small className="conversation-history-boundary">
+                        研究地图：v{String(asRecord(dialogue?.version_change)?.from_version ?? "-")} → v{String(asRecord(dialogue?.version_change)?.to_version ?? "-")}
+                      </small>
+                    )}
+                    {(asText(response?.checkpoint) || asText(gate?.gate_type) || asText(stream?.phase)) && (
+                      <small className="conversation-history-boundary">
+                        {asText(response?.checkpoint) ? `检查点：${asText(response?.checkpoint)}` : ""}
+                        {asText(gate?.gate_type) ? ` · Gate：${asText(gate?.gate_type)}` : ""}
+                        {asText(stream?.phase) ? ` · 阶段：${asText(stream?.phase)}` : ""}
+                      </small>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {researchRuns.length > 0 && !(view === "audit" && contextTab === "workspace") && (
+          <section className="research-event-strip" aria-label="独立研究任务">
+            <div className="output-section-heading">
+              <div><span className="chat-kicker">RESEARCH RUNS</span><h3>研究任务</h3></div>
+              <span>{researchRuns.length} 项</span>
+            </div>
+            <div className="research-event-list">
+              {researchRuns.slice().reverse().slice(0, 5).map((run) => (
+                <div className="research-event-item" key={run.run_id}>
+                  <span className="research-event-dot" aria-hidden="true" />
+                  <div>
+                    <strong>{run.run_type === "literature" ? "文献检索" : run.run_type === "analysis" ? "数据分析" : run.run_type === "writing" ? "论文写作" : "研究任务"}</strong>
+                    <small>{run.status === "COMPLETED" ? "已完成" : run.status === "FAILED" ? "需要处理" : run.status === "RUNNING" ? "进行中" : "等待运行"}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {contextTab === "agent-work" && (
           <div className="output-content">
             {researchCanvas && researchCanvas.nodes.length > 0 && (
@@ -6020,9 +4275,9 @@ export function App() {
 
         {view === "knowledge" && contextTab === "evidence" && (
           <div className="output-content">
-            <section className="output-section knowledge-project-materials-section">
+            <section className="output-section">
               <div className="output-section-heading">
-                  <h3>当前项目资料</h3>
+                <h3>当前项目论文</h3>
                 <div className="output-heading-actions">
                   <span>{documentsBusy ? "加载中..." : `${activeDocuments.length} 篇`}</span>
                   <button
@@ -6046,12 +4301,12 @@ export function App() {
                   />
                 </div>
               </div>
-              <div className="paper-list knowledge-project-materials-list">
+              <div className="paper-list">
                 {projectPapers.map((document) => (
                   <button className="paper-item" type="button" key={document.document_id} onClick={() => void openDocument(document)}>
                     <span className="paper-file-icon">{document.format.toUpperCase()}</span>
                     <span><strong>{document.title}</strong><small>版本 {document.current_version} · {document.document_type}</small></span>
-                    <span className="row-arrow">&gt;</span>
+                    <span className="row-arrow">›</span>
                   </button>
                 ))}
                 {!documentsBusy && !projectPapers.length && (
@@ -6063,7 +4318,6 @@ export function App() {
                 {uploadError && <p className="upload-error">{uploadError}</p>}
               </div>
             </section>
-            {renderKnowledgeAssetLibrary()}
             {writingSurfaceVisible && <section className="output-section draft-section">
               <div className="output-section-heading">
                 <div>
@@ -6087,7 +4341,7 @@ export function App() {
                       <strong>{document.title}</strong>
                       <small>版本 {document.current_version} · 可编辑</small>
                     </span>
-                    <span className="row-arrow">&gt;</span>
+                    <span className="row-arrow">›</span>
                   </button>
                 ))}
                 {!documentsBusy && !draftDocuments.length && (
@@ -6115,7 +4369,7 @@ export function App() {
                     className="evidence-item"
                     type="button"
                     key={`${activeResponse?.turn_id ?? activeResponse?.memory_ref ?? "turn"}-${index}-${citation.canonical_chunk_id}`}
-                    onClick={() => openCitationDetails(citation)}
+                    onClick={() => setSelectedCitation(citation)}
                   >
                     <div className="evidence-item-topline">
                       <span className="citation-number">{citation.citation_index || index + 1}</span>
@@ -6138,7 +4392,7 @@ export function App() {
               <div className="output-section-heading">
                 <h3>知识库状态</h3>
                 <span className={corpusSummary?.discovery_ready ? "ready-text" : "review-tag"}>
-                  {corpusStatusLabel(corpusSummary)}
+                  {corpusSummary?.formal_evidence_ready ? "正式证据可用" : corpusSummary?.discovery_ready ? "发现模式可用" : "资源缺失"}
                 </span>
               </div>
               <div className="corpus-stats">
@@ -6147,7 +4401,7 @@ export function App() {
                 <div><strong>{citations.length}</strong><small>本轮证据</small></div>
               </div>
               {corpusSummary?.risk_flags.length ? (
-                <p className="workflow-control-error">{corpusSummary.risk_flags.map(corpusRiskFlagLabel).join("；")}</p>
+                <p className="workflow-control-error">{corpusSummary.risk_flags.join("；")}</p>
               ) : null}
             </section>
             {knowledgeAssetSummary && (
@@ -6199,7 +4453,7 @@ export function App() {
                 type="button"
                 onClick={() => document.querySelector<HTMLTextAreaElement>(".composer-box textarea")?.focus()}
               >
-                在对话中提出研究需求 <span>&gt;</span>
+                在对话中提出研究需求 <span>→</span>
               </button>
             </section>
             <section className="output-section physics-validator-section">
@@ -6212,7 +4466,7 @@ export function App() {
                 <textarea className="physics-code-input physics-equation-input" value={physicsEquations} onChange={(event) => setPhysicsEquations(event.target.value)} rows={3} />
               </label>
               <button className="primary-inline-button" type="button" disabled={physicsBusy || !auth?.access_token} onClick={() => void validatePhysics()}>
-                {physicsBusy ? "校验中..." : "运行物理校验"} <span>&gt;</span>
+                {physicsBusy ? "校验中..." : "运行物理校验"} <span>→</span>
               </button>
               {physicsError && <p className="upload-error">{physicsError}</p>}
               {physicsReport && <div className={`physics-report ${physicsReport.passed ? "physics-report-pass" : "physics-report-fail"}`}>
@@ -6359,7 +4613,7 @@ export function App() {
                     <p>{analysisState.pending_approval.reason}</p>
                     <div className="analysis-approval-actions">
                       <button className="secondary-inline-button" type="button" disabled={analysisBusy} onClick={() => void decideAnalysisStep("rejected")}>退回修正<span>↩</span></button>
-                      <button className="primary-inline-button" type="button" disabled={analysisBusy} onClick={() => void decideAnalysisStep("approved")}>{analysisBusy ? "处理中..." : "确认并继续"}<span>&gt;</span></button>
+                      <button className="primary-inline-button" type="button" disabled={analysisBusy} onClick={() => void decideAnalysisStep("approved")}>{analysisBusy ? "处理中..." : "确认并继续"}<span>→</span></button>
                     </div>
                   </section>
                 )}
@@ -6395,9 +4649,7 @@ export function App() {
           </div>
         )}
 
-        {view === "audit" && contextTab === "workspace" && renderOutputWorkspace()}
-
-        {false && view === "audit" && contextTab === "workspace" && (
+        {view === "audit" && contextTab === "workspace" && (
           <div className="output-content">
             <section className="output-section workflow-control-section">
               <div className="output-section-heading">
@@ -6436,7 +4688,7 @@ export function App() {
                         <strong>{document.title}</strong>
                         <small>版本 {document.current_version} · {new Date(document.updated_at).toLocaleString()}</small>
                       </span>
-                      <span className="row-arrow">&gt;</span>
+                      <span className="row-arrow">打开 ›</span>
                     </button>
                   ))}
                 </div>
@@ -6466,11 +4718,9 @@ export function App() {
                     <span className="paper-file-icon draft-file-icon">稿</span>
                     <span>
                       <strong>{latestManuscriptTitle}</strong>
-                      <small>{latestManuscriptArtifact?.artifact_type === "ManuscriptDraftZh" ? "完整候选稿" : "论文大纲"} · 已生成，尚未写入项目文档</small>
+                      <small>{latestManuscriptArtifact.artifact_type === "ManuscriptDraftZh" ? "完整候选稿" : "论文大纲"} · 已生成，尚未写入项目文档</small>
                     </span>
-                    <button className="primary-inline-button" type="button" disabled={agentPlanBusy || !latestManuscriptArtifact} onClick={() => {
-                      if (latestManuscriptArtifact) void applyManuscriptArtifact(latestManuscriptArtifact.artifact_id);
-                    }}>
+                    <button className="primary-inline-button" type="button" disabled={agentPlanBusy} onClick={() => void applyManuscriptArtifact(latestManuscriptArtifact.artifact_id)}>
                       {agentPlanBusy ? "处理中..." : "打开论文"}
                     </button>
                   </div>
@@ -6548,7 +4798,7 @@ export function App() {
                 <h3>科研工作流</h3>
                 <span className="workflow-stage-code">
                   {orchestrationState?.active_workstream_id
-                    ? orchestrationPhaseLabels[String(activeOrchestrationStream?.phase ?? "")] ?? activeOrchestrationStream?.phase
+                    ? orchestrationPhaseLabels[activeOrchestrationStream?.phase ?? ""] ?? activeOrchestrationStream?.phase
                     : workflow?.current_stage ?? "未启动"}
                 </span>
               </div>
@@ -6560,19 +4810,19 @@ export function App() {
                     <span>当前阶段</span>
                     <strong>
                       {orchestrationState?.active_workstream_id
-                        ? orchestrationPhaseLabels[String(activeOrchestrationStream?.phase ?? "")] ?? activeOrchestrationStream?.phase
+                        ? orchestrationPhaseLabels[activeOrchestrationStream?.phase ?? ""] ?? activeOrchestrationStream?.phase
                         : workflow?.current_stage ?? "等待研究主题"}
                     </strong>
                   </div>
                   {activeOrchestrationStep && (
                     <div className="workflow-state-row">
                       <span>当前动作</span>
-                      <strong>{orchestrationActionLabels[String(activeOrchestrationStep)] ?? activeOrchestrationStep}</strong>
+                      <strong>{orchestrationActionLabels[activeOrchestrationStep] ?? activeOrchestrationStep}</strong>
                     </div>
                   )}
                   {orchestrationState?.active_gate_id && activeOrchestrationStep && (
                     <p className="workflow-control-note">
-                      当前停在“{orchestrationActionLabels[String(activeOrchestrationStep)] ?? activeOrchestrationStep}”审查点；你可以在对话中确认、提出修改，或查看右侧对应产物。
+                      当前停在“{orchestrationActionLabels[activeOrchestrationStep] ?? activeOrchestrationStep}”审查点；你可以在对话中确认、提出修改，或查看右侧对应产物。
                     </p>
                   )}
                   <p className="workflow-control-note workflow-control-agent-note">
@@ -6581,7 +4831,7 @@ export function App() {
                   {workflow?.data_pipeline && (
                     <div className="workflow-state-row">
                       <span>数据管线</span>
-                      <strong>{workflow?.data_pipeline?.stage ? dataPipelineLabels[String(workflow?.data_pipeline?.stage)] ?? workflow?.data_pipeline?.stage : "未启动"}</strong>
+                      <strong>{dataPipelineLabels[workflow.data_pipeline.stage] ?? workflow.data_pipeline.stage}</strong>
                     </div>
                   )}
 
@@ -6609,7 +4859,7 @@ export function App() {
                   ) : workflow?.pending_approval_ref ? (
                     <p className="workflow-control-note">这是历史固定流程遗留的审批记录；新的研究任务请直接在对话中提出。</p>
                   ) : null}
-                  {workflow?.data_pipeline?.rework_reason && <p className="workflow-control-error">{workflow?.data_pipeline?.rework_reason}</p>}
+                  {workflow?.data_pipeline?.rework_reason && <p className="workflow-control-error">{workflow.data_pipeline.rework_reason}</p>}
                 </div>
               )}
               {workflowError && <p className="workflow-control-error" role="alert">{workflowError}</p>}
@@ -6621,7 +4871,7 @@ export function App() {
             <section className="output-section research-analysis-launcher">
               <div className="output-section-heading"><h3>研究数据审查</h3><span className="review-tag">人工复核</span></div>
               <p>运行 Schema、异常值、多重比较、因果识别、敏感性、预测区间和元分析，并查看每一步的可审计报告。</p>
-              <button className="primary-inline-button" type="button" onClick={() => setAnalysisWorkbenchOpen(true)}>打开审查工作台 <span>&gt;</span></button>
+              <button className="primary-inline-button" type="button" onClick={() => setAnalysisWorkbenchOpen(true)}>打开审查工作台 <span>→</span></button>
             </section>
             {renderPageMaterials("审查结论与修改请求", ["audit_validation"])}
             <section className="output-section">
@@ -6637,17 +4887,7 @@ export function App() {
                   </p>
                 </div>
               )}
-              <button
-                className="secondary-inline-button"
-                type="button"
-                onClick={() => {
-                  setView("audit");
-                  setContextTab("workspace");
-                  setRightPaneVisible(true);
-                }}
-              >
-                查看完整审查记录 <span>&gt;</span>
-              </button>
+              <button className="secondary-inline-button" type="button">查看完整审查记录 <span>→</span></button>
             </section>
           </div>
         )}
@@ -6655,7 +4895,7 @@ export function App() {
 
       {!rightPaneVisible && (
         <button className="restore-output-button" type="button" title="显示右侧输出面板" onClick={() => setRightPaneVisible(true)}>
-          &lt; <span>显示输出</span>
+          ← <span>显示输出</span>
         </button>
       )}
 
@@ -6729,14 +4969,14 @@ export function App() {
       )}
 
       {selectedCitation && (
-        <div className="workspace-drawer-backdrop" role="presentation" onClick={closeCitationDetails}>
+        <div className="workspace-drawer-backdrop" role="presentation" onClick={() => setSelectedCitation(null)}>
           <section className="workspace-drawer citation-drawer-new" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="workspace-drawer-header">
               <div>
                 <span className="chat-kicker">检索证据</span>
                 <h2>{selectedCitation.paper_title}</h2>
               </div>
-              <button className="header-icon-button" type="button" title="关闭" onClick={closeCitationDetails}>×</button>
+              <button className="header-icon-button" type="button" title="关闭" onClick={() => setSelectedCitation(null)}>×</button>
             </div>
             <blockquote>{selectedCitation.excerpt}</blockquote>
             <dl className="citation-meta-list">
@@ -6755,22 +4995,6 @@ export function App() {
                 ? "这条材料已通过来源定位和核验，可以进入正式证据链。"
                 : "这条材料目前只能用于探索，正式模式下还需要来源定位和核验。"}
             </p>
-            <div className="citation-drawer-actions">
-              {isFormalCitation(selectedCitation) ? (
-                <span className="verified-tag">已进入正式证据链</span>
-              ) : (
-                <button
-                  className="primary-inline-button"
-                  type="button"
-                  disabled={citationActionBusy || evidenceBusy}
-                  onClick={() => void verifySelectedCitation()}
-                >
-                  {citationActionBusy ? "核验并提取中..." : "核验来源并提取正式证据"}
-                </button>
-              )}
-              <span className="citation-action-hint">核验通过后，这条材料会同步到正式证据库。</span>
-            </div>
-            {citationActionError && <p className="citation-action-error" role="alert">{citationActionError}</p>}
           </section>
         </div>
       )}
@@ -6845,57 +5069,11 @@ export function App() {
           <div className="login-card">
             <div className="research-logo large">S</div>
             <span className="chat-kicker">STEM-SCI</span>
-            <div className="auth-heading-row">
-              <div>
-                <h2>{authMode === "login" ? "登录你的科研工作台" : "创建科研工作台账号"}</h2>
-                <p>
-                  {authMode === "login"
-                    ? "登录后可以保存项目、对话、论文和长期研究记忆。这里使用 STEM-SCI 本地账号，不是 GitHub 账号。"
-                    : "注册后即可创建项目，并把对话、证据和研究产出保存到本地后端。"}
-                </p>
-              </div>
-              <span className="auth-mode-label">{authMode === "login" ? "已有账号" : "首次使用"}</span>
-            </div>
-            <div className="auth-mode-switch" role="tablist" aria-label="账号操作">
-              <button
-                className={authMode === "login" ? "auth-mode-button active" : "auth-mode-button"}
-                type="button"
-                role="tab"
-                aria-selected={authMode === "login"}
-                onClick={() => {
-                  setAuthMode("login");
-                  setAuthError("");
-                }}
-              >
-                登录
-              </button>
-              <button
-                className={authMode === "register" ? "auth-mode-button active" : "auth-mode-button"}
-                type="button"
-                role="tab"
-                aria-selected={authMode === "register"}
-                onClick={() => {
-                  setAuthMode("register");
-                  setAuthError("");
-                }}
-              >
-                注册
-              </button>
-            </div>
-            {authMode === "register" && (
-              <>
-                <label>用户名<input value={registerUsername} onChange={(event) => setRegisterUsername(event.target.value)} placeholder="例如 researcher01" autoComplete="username" /></label>
-                <label>邮箱<input type="email" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} placeholder="name@university.edu.cn" autoComplete="email" /></label>
-                <label>显示名称（可选）<input value={registerDisplayName} onChange={(event) => setRegisterDisplayName(event.target.value)} placeholder="例如 张同学" autoComplete="name" /></label>
-              </>
-            )}
-            {authMode === "login" && (
-              <label>邮箱或用户名<input value={loginValue} onChange={(event) => setLoginValue(event.target.value)} placeholder="researcher" autoComplete="username" /></label>
-            )}
+            <h2>登录你的科研工作台</h2>
+            <p>登录后可以保存项目、对话、论文和长期研究记忆。</p>
+            <label>邮箱或用户名<input value={loginValue} onChange={(event) => setLoginValue(event.target.value)} placeholder="researcher" /></label>
             <label>密码<input type="password" value={passwordValue} onChange={(event) => setPasswordValue(event.target.value)} placeholder="••••••••" /></label>
-            <button className="login-submit" type="button" disabled={authBusy} onClick={() => void (authMode === "login" ? signIn() : signUp())}>
-              {authBusy ? (authMode === "login" ? "正在登录..." : "正在创建账号...") : (authMode === "login" ? "登录并进入工作台" : "注册并进入工作台")}
-            </button>
+            <button className="login-submit" type="button" disabled={authBusy} onClick={() => void signIn()}>{authBusy ? "正在登录..." : "登录并进入工作台"}</button>
             {authError && <p className="login-error">{authError}</p>}
             {demoMode && <small className="login-demo-note">当前为演示模式，可先直接浏览界面和示例证据。</small>}
           </div>
