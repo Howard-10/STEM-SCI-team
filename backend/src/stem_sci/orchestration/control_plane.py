@@ -945,7 +945,7 @@ class ControlPlane:
 
         common = cls._WORKFLOW_STEPS[:8]
         if route in {"QUALITATIVE", "MIXED_QUALITATIVE"}:
-            qualitative_tail = ("qualitative_design", "raw_data_import", "data_audit", "data_processing_approval", "dataset_freeze_hash")
+            qualitative_tail: tuple[str, ...] = ("qualitative_design", "raw_data_import", "data_audit", "data_processing_approval", "dataset_freeze_hash")
             if computational_qualitative:
                 qualitative_tail += (
                     "analysis_code_generation", "code_review", "manual_execution_approval",
