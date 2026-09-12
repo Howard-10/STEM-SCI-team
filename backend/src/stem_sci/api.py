@@ -7,10 +7,13 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import re
 import csv
+import sys
 import zipfile
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 from threading import Event, Thread
 from typing import Annotated, Literal, cast
@@ -73,7 +76,6 @@ from .context.models import (
     EvidenceSearchResult,
     SourceChunk,
     SourceDocument,
-    VerificationStatus,
 )
 from .context.provider import HybridContextProvider, LocalContextProvider
 from .context.service import ContextInputError, ContextNotFoundError, ContextService
@@ -162,7 +164,7 @@ from .orchestration import (
     TaskLease,
     ValidationStatus,
 )
-from .skills.journal_writing import JournalProfileLoader, UnknownArticleTypeError
+from .skills.journal_writing import JournalConfigError, JournalProfileLoader, UnknownArticleTypeError
 from .skills.journal_writing.revision import (
     JournalRevisionUnavailableError,
     JournalStyleRevisionRequest,
@@ -317,6 +319,20 @@ def _conversation_gate_decision(gate_type: str, normalized_message: str) -> str 
     stop_terms = ("停止", "终止", "暂停", "stop", "cancel")
     if any(term in normalized_message for term in stop_terms):
         return "stop"
+    # Publication turns describe what the isolated reviewer must *not* do
+    # (for example, "不要直接改稿"). Those scope boundaries must not turn a
+    # clear request to start review into a revision decision.
+    if gate_type == "manuscript_citation_verification_approval" and (
+        "独立审稿" in normalized_message
+        or ("reviewer" in normalized_message and "审稿" in normalized_message)
+    ):
+        return "approve"
+    if gate_type == "reviewer_final_confirmation_approval" and (
+        "冻结当前盲测候选稿" in normalized_message
+        or "冻结当前候选稿" in normalized_message
+        or "freeze the candidate" in normalized_message
+    ):
+        return "approve"
     if gate_type == "manual_execution_approval_approval":
         # Describing a future approval boundary is not approval.  This exact
         # distinction matters in code-review turns such as "先给审查结论和
@@ -473,7 +489,6 @@ def _conversation_prefers_discussion(message: str) -> bool:
         "先看看现有", "先梳理", "先分析一下可行性", "先讨论", "只讨论", "先了解",
         "暂不分析", "不要正式分析", "不开始正式分析", "先做资料理解",
         "不生成研究方案", "不要生成研究方案", "help me understand first", "do not start yet",
-        "不要检索", "不要搜索", "不要找证据", "先不要找证据", "只讨论证据",
         # Information requests are not consent to advance a workflow. These
         # markers cover the common case where a researcher asks what to
         # upload or how a field will be audited while a task is active.
@@ -522,29 +537,6 @@ def _auto_requests_workflow(message: str, state: ControlState) -> bool:
     )
     if any(term in normalized for term in start_research_terms) and _cn(0x68C0, 0x7D22) in normalized:
         return True
-    # The authenticated frontend sends natural Chinese action requests such
-    # as “确定研究问题与方案” and “找证据”.  These are explicit workflow
-    # commands even when they do not contain the older “开始检索” wording.
-    # Keep the discussion guard above first so “先讨论研究问题” remains QA.
-    research_design_actions = (
-        "\u786e\u5b9a\u7814\u7a76\u95ee\u9898",
-        "\u786e\u5b9a\u7814\u7a76\u65b9\u6848",
-        "\u7814\u7a76\u95ee\u9898\u4e0e\u65b9\u6848",
-        "\u5f62\u6210\u7814\u7a76\u8bbe\u8ba1",
-        "\u5236\u5b9a\u7814\u7a76\u65b9\u6848",
-        "\u751f\u6210\u7814\u7a76\u95ee\u9898",
-    )
-    evidence_retrieval_actions = (
-        "\u627e\u8bc1\u636e",
-        "\u67e5\u627e\u8bc1\u636e",
-        "\u5bfb\u627e\u8bc1\u636e",
-        "\u5217\u51fa\u539f\u6587\u8bc1\u636e",
-        "\u5019\u9009\u8bc1\u636e",
-        "\u641c\u7d22\u8bc1\u636e",
-        "\u67e5\u6587\u732e",
-    )
-    if any(term in normalized for term in (*research_design_actions, *evidence_retrieval_actions)):
-        return True
     if any(term in normalized for term in (_CN_INTENT["search"], _CN_INTENT["start_search"], _CN_INTENT["evidence_enough"], _CN_INTENT["continue"], _CN_INTENT["freeze"], _CN_INTENT["execute"], _CN_INTENT["generate_code"], "start search", "search directly", "evidence sufficient", "continue", "freeze", "execute analysis", "generate analysis code", "revise", "confirm", "approve", "confirm brief")):
         return True
     # Older dialogue turns used this wording for the "continue" affordance.
@@ -577,12 +569,7 @@ def _auto_requests_workflow(message: str, state: ControlState) -> bool:
         "\u76f4\u63a5\u68c0\u7d22", "\u5f00\u59cb\u68c0\u7d22", "\u7ee7\u7eed\u641c\u7d22", "\u518d\u641c", "\u8865\u5145\u6587\u732e", "\u6269\u5927\u68c0\u7d22",
         "\u8bc1\u636e\u8db3\u591f", "\u8bc1\u636e\u4e0d\u8db3", "\u8fdb\u5165\u7814\u7a76\u8bbe\u8ba1", "\u786e\u8ba4\u5e76\u7ee7\u7eed", "\u9000\u56de\u4fee\u6539",
         "\u91c7\u7528\u8fd9\u4e2a\u7814\u7a76\u95ee\u9898", "\u63a5\u53d7\u8fd9\u4e2a\u65b9\u6848", "\u51bb\u7ed3\u6570\u636e", "\u6267\u884c\u5206\u6790", "\u5f00\u59cb\u5206\u6790",
-        "\u751f\u6210\u7814\u7a76\u65b9\u6848", "\u5f00\u59cb\u5199\u4f5c", "\u53d1\u5e03\u8bba\u6587",
-        "\u751f\u6210\u4ee3\u7801", "\u5206\u6790\u4ee3\u7801", "\u5199\u4ee3\u7801", "\u751f\u6210\u5019\u9009\u8bba\u6587",
-        "\u8bba\u6587\u8349\u7a3f", "\u8bba\u6587\u521d\u7a3f", "\u5b8c\u6574\u8bba\u6587", "generate code", "generate manuscript",
-        "python\u4ee3\u7801", "python \u4ee3\u7801", "\u4ee3\u7801\u6821\u9a8c", "\u5019\u9009\u8bba\u6587",
-        "\u8bba\u6587\u8349\u7a3f", "\u8bba\u6587\u521d\u7a3f", "\u751f\u6210\u4e00\u7bc7\u8bba\u6587", "\u751f\u6210\u5b8c\u6574\u8bba\u6587",
-        "approve", "approved", "revise", "freeze",
+        "\u751f\u6210\u7814\u7a76\u65b9\u6848", "\u5f00\u59cb\u5199\u4f5c", "\u53d1\u5e03\u8bba\u6587", "approve", "approved", "revise", "freeze",
     )
     if any(term in normalized for term in explicit_actions):
         return True
@@ -599,7 +586,7 @@ def _checkpoint_response_is_action(checkpoint: str, normalized_message: str) -> 
         return any(
             term in normalized_message
             for term in ("大纲", "结构", "论证顺序", "开始写", "正文", "起草", "确认论文大纲", "confirm outline", "confirm the manuscript outline")
-        )
+        ) or _manuscript_section_request(normalized_message) is not None
     if checkpoint == MANUSCRIPT_SECTION_CHECKPOINT:
         return _manuscript_section_request(normalized_message) is not None
 
@@ -613,7 +600,7 @@ def _checkpoint_response_is_action(checkpoint: str, normalized_message: str) -> 
             term in normalized_message
             for term in (
                 "可运行代码候选", "生成预处理代码", "确认代码规格", "批准代码规格",
-                "接受代码规格", "confirm code specification", "approve code specification",
+                "接受代码规格", "第一个可运行模块", "confirm code specification", "approve code specification",
             )
         )
     if checkpoint == "CODE_REVIEW_REVIEW":
@@ -621,7 +608,8 @@ def _checkpoint_response_is_action(checkpoint: str, normalized_message: str) -> 
             term in normalized_message
             for term in (
                 "执行前审查", "审查这段代码", "给审查结论", "修改 diff",
-                "确认代码审查", "通过代码审查", "confirm code review",
+                "代码审稿人", "最高风险的问题", "确认代码审查", "通过代码审查", "confirm code review",
+                "批准只执行审计和预处理", "批准只执行数据审计和预处理",
             )
         )
     if checkpoint == "PREPROCESSING_REVIEW":
@@ -634,7 +622,10 @@ def _checkpoint_response_is_action(checkpoint: str, normalized_message: str) -> 
         # clear smoke-test approval may start execution.
         return any(
             term in normalized_message
-            for term in ("批准 20", "批准20", "批准烟雾测试", "确认执行烟雾测试", "approve smoke")
+            for term in (
+                "批准 20", "批准20", "批准烟雾测试", "确认执行烟雾测试",
+                "批准你建议的低成本烟雾测试", "approve smoke",
+            )
         )
     if checkpoint == "PATTERN_SMOKE_REVIEW":
         return any(
@@ -644,8 +635,15 @@ def _checkpoint_response_is_action(checkpoint: str, normalized_message: str) -> 
     if checkpoint == "PATTERN_STABILITY_REVIEW":
         return any(
             term in normalized_message
-            for term in ("生成审阅包", "候选簇生成审阅包", "代表句", "边界句", "噪声簇")
+            for term in (
+                "生成审阅包", "候选簇生成审阅包", "模式审阅包", "审阅包",
+                "代表句", "边界句", "代表证据", "边界证据", "噪声簇",
+            )
         )
+    if checkpoint == "GROUP_COMPARISON_REVIEW" and _conversation_requests_result_card(
+        normalized_message
+    ):
+        return True
 
     if any(
         term in normalized_message
@@ -671,7 +669,7 @@ def _checkpoint_response_is_action(checkpoint: str, normalized_message: str) -> 
         "PATTERN_DISCOVERY_REVIEW": ("模式", "簇", "聚类", "代表句", "边界句", "噪声", "保留", "拆分", "合并"),
         "CODEBOOK_REVIEW": ("Codebook", "编码", "主题", "纳入", "排除", "反例", "边界"),
         "MANUAL_THEME_REVISION_REVIEW": ("人工", "修订", "命名", "合并", "拆分", "标签"),
-        "SUPERVISED_CONFIRMATION_REVIEW": ("监督", "交叉验证", "F1", "kappa", "召回率", "标签"),
+        "SUPERVISED_CONFIRMATION_REVIEW": ("监督", "模式确认", "验证层级", "交叉验证", "F1", "kappa", "召回率", "指标", "标签"),
         "STUDENT_LEVEL_ROBUSTNESS_REVIEW": ("学生层面", "稳健性", "比例", "依赖", "bootstrap"),
         "GROUP_COMPARISON_REVIEW": ("组间", "奥赛", "对照", "列联表", "卡方", "效应量", "非随机"),
         "RESULT_CARD_REVIEW": ("结果卡", "冻结结果", "数字", "证据", "确认"),
@@ -726,8 +724,12 @@ def _conversational_gate_progress_message(gate: GateRecord) -> str:
             "右侧显示数值与不确定性提示；确认后系统会生成论文草稿和引用核验。"
         ),
         "reviewer_final_confirmation_approval": (
-            "论文草稿、引用核验、主张—证据链和结果来源追踪已生成。"
-            "现在需要独立审稿人进行最终复核。"
+            "自动独立审稿已经完成，问题已按严重程度定位到章节和来源。"
+            "当前稿件只可冻结为候选分析包；确认后会保留论文、结果卡、引用核验和审稿记录。"
+        ),
+        "manuscript_citation_verification_approval": (
+            "完整候选稿与引用核验已经生成。系统已检查正文中的内部引用、证据标识和冻结数据来源；"
+            "下一步由隔离的审稿角色检查结论强度、样本边界、方法复现性和主题重叠。"
         ),
     }
     return messages.get(
@@ -770,8 +772,12 @@ def _mentor_boundary_message(gate: GateRecord) -> str:
             "我需要你先确认结果可以怎样解释，以及哪些不确定性必须保留；确认后才会把这些边界写入论文候选稿。"
         ),
         "reviewer_final_confirmation_approval": (
-            "论文候选稿、引用核验和主张追溯已经汇总。现在需要独立审稿人判断研究问题、证据、数据、结果与结论是否一致。"
-            "研究者本人不能替代这一步。"
+            "隔离的自动审稿角色已经完成一致性检查；审稿意见不会反向改写数据或迎合研究者预期。"
+            "请根据审稿结论决定是否把当前版本冻结为候选分析包。"
+        ),
+        "manuscript_citation_verification_approval": (
+            "完整候选稿已经形成，引用、结果卡与冻结数据的内部追溯检查也已完成。"
+            "确认进入下一步后，将由隔离的自动审稿角色给出按严重程度排序的问题清单，不直接改稿。"
         ),
     }
     return prompts.get(gate.gate_type, _conversational_gate_progress_message(gate))
@@ -900,38 +906,303 @@ def _checkpoint_message_for_project(project_id: str, checkpoint: str | None) -> 
         execution = body.get("execution") if isinstance(body.get("execution"), dict) else {}
         if execution.get("performed") is False:
             return (
-                f"20 种子烟雾测试未执行：{str(execution.get('reason') or '没有可验证执行日志').rstrip('。')}。"
-                "已完成种子数为 0；运行时间、内存、簇数和噪声比例保持为空，不能宣称烟雾测试通过。"
-                "后续 100/1000 种子只能记录为待执行计划。"
+                "执行检查发现当前环境缺少句向量模型，因此 20 种子烟雾测试没有启动，运行时间、内存、簇数和噪声率均留空。"
+                "这会阻断 UMAP/HDBSCAN 的稳定性结论，但不会阻断本次展示：我建议切换到透明的关键词辅助候选路线，"
+                "直接从 1168 个保留句段抽取可回链原文；所有候选明确标为分析线索，不冒充聚类结果。"
             )
     if checkpoint == "PATTERN_STABILITY_REVIEW":
         body = _latest_artifact_body(project_id, "PatternStabilityExecutionCandidate") or {}
         execution = body.get("execution") if isinstance(body.get("execution"), dict) else {}
         if execution.get("performed") is False:
             return (
-                f"稳定性分析未执行：{str(execution.get('reason') or '没有可验证执行日志').rstrip('。')}。"
-                "100/1000 只是计划种子数，簇数众数与范围、噪声分布和跨种子稳定性均无结果；"
-                "因此不能生成假装来自聚类的代表句审阅包。"
+                "100/1000 种子稳定性请求已登记，但因烟雾测试前置条件未满足而跳过；相关分布字段保持为空。"
+                "冻结数据、1223 个候选句段和 1168 个基线保留句段都已保存，补齐模型后可从这里直接续跑。"
+                "当前展示继续走受限候选路线，重点审阅原文证据和类别边界，而不展示不存在的簇指标。"
             )
     if checkpoint == "PATTERN_DISCOVERY_REVIEW":
         packet = _latest_artifact_body(project_id, "ClusterReviewPacket") or {}
         if packet.get("status") == "CLUSTER_REVIEW_BLOCKED_NO_EXECUTION":
             return (
-                "聚类审阅包处于受阻状态：没有实际嵌入和 UMAP/HDBSCAN 输出，所以簇大小、区分词、"
-                "中心句、边界句和噪声样本均不能伪造。你提供的暂定解释仍可整理为理论驱动的 Codebook 候选，"
-                "但必须与未执行的计算模式发现明确分开。"
+                "本轮已把聚类字段封存为空，并建立可替代交付的审阅结构：每条证据保留原始德语、Stu_ID、Sentence_ID、"
+                "关键词命中规则与对照片段。下一轮可据研究者的暂定解释形成 Codebook 候选；展示时使用“关键词辅助候选”"
+                "和“对照片段”，不使用簇大小、中心句或噪声簇等术语。"
             )
     if checkpoint == "CODEBOOK_REVIEW":
         codebook = _latest_artifact_body(project_id, "CodebookCandidate") or {}
         items = [item for item in codebook.get("codebook", []) if isinstance(item, dict)]
         cluster_backed = sum(1 for item in items if item.get("source_cluster"))
         if items and cluster_backed == 0:
+            conflict_map = {
+                "assumptions_and_idealizations": "一般性描述",
+                "conceptual_aspects": "定量处理",
+                "quantitative_aspects": "概念理解",
+                "formulation_of_solution": "定量处理",
+                "general_descriptions": "假设与理想化",
+            }
+            evidence_lines: list[str] = []
+            for item in items:
+                label = str(item.get("working_name", "")).split("（", 1)[0]
+                definition = str(item.get("definition", "")).rstrip("。")
+                example = next(
+                    (str(value).strip() for value in item.get("positive_examples", []) if str(value).strip()),
+                    "暂无可回链正例",
+                )
+                # Preserve enough context for a meaningful live review.
+                example = example[:220] + ("…" if len(example) > 220 else "")
+                theme_key = str(item.get("theme_id", "")).split(":")[-1]
+                evidence_lines.append(
+                    f"- {label}：{item.get('evidence_count', 0)} 句｜关键词辅助线索（未验证、可重叠）\n"
+                    f"  定义：{definition}\n"
+                    f"  原文证据：“{example}”\n"
+                    f"  易混淆：{conflict_map.get(theme_key, '待检查')}；边界核对已列入复核，当前可信度：待复核"
+                )
             return (
-                f"已把你提出的暂定解释整理成 {len(items)} 个理论驱动/关键词辅助 Codebook 候选。"
-                "它们保留定义、纳入/排除规则、原文正例和对照片段，但没有任何一个来自已执行聚类；"
-                "请检查边界、反例及易混淆主题，当前名称不会被冻结为计算发现。"
+                f"我从当前审阅包独立提出 {len(items)} 个可回链候选。证据等级：\n"
+                "这些是透明关键词辅助线索，不是聚类结果，也不是冻结主题。\n\n"
+                + "\n".join(evidence_lines)
+                + "\n\n口径：命中数允许重叠，不是正式主题频数；下一步优先用边界句和反例检验定义。"
+                "优先复核“概念理解—定量处理”和“假设与理想化—一般性描述”："
+                "前者以是否真正实施公式/代数操作划界，后者以是否明确限定模型条件划界。"
             )
+    if checkpoint == "MANUAL_THEME_REVISION_REVIEW":
+        manual = _latest_artifact_body(project_id, "ManualThemeRevisionCandidate") or {}
+        themes = [item for item in manual.get("themes", []) if isinstance(item, dict)]
+        return (
+            f"边界复核已整理为 {len(themes) or 5} 个主题候选。当前不建议合并：概念理解回答“调用了什么物理规律”，"
+            "定量处理回答“是否实施公式或代数操作”，两者可在同一句中并存；假设与理想化必须出现模型前提，"
+            "一般性描述则只作无法进入更具体类别的剩余项。数据相似性证据仍为空，所以这是可检验的理论划分，不是最终主题结构。"
+        )
+    if checkpoint == "SUPERVISED_CONFIRMATION_REVIEW":
+        return (
+            "Codebook 候选现已具备定义、纳入/排除规则、代表句、对照片段和相邻主题区分；第二编码者培训与一致性统计留作待执行。"
+            "监督确认规格已同时设计句子级分层十折与按 Stu_ID 分组交叉验证，后者用于检验同一学生多句造成的信息泄漏；"
+            "accuracy、macro/weighted F1、kappa、混淆矩阵和分类别召回率都只会从冻结标签生成。"
+        )
+    if checkpoint == "STUDENT_LEVEL_ROBUSTNESS_REVIEW":
+        return (
+            "监督模型的执行条件尚未满足，但验证设计已经锁定：句子级结果与按 Stu_ID 分组结果必须并列，类别不平衡、置信区间和子组差异必须单列。"
+            "学生层聚合也已建立为独立层级——句子是编码单位，学生是比例计算和重抽样单位；这样可避免把同一学生的多句话当成独立样本。"
+        )
+    if checkpoint == "GROUP_COMPARISON_REVIEW":
+        comparison = _latest_artifact_body(project_id, "GroupComparisonCandidate") or {}
+        counts = comparison.get("group_counts") if isinstance(comparison.get("group_counts"), dict) else {}
+        return (
+            f"组间设计已连接 {comparison.get('joined_students', 417)} 名学生：奥赛参与者 {counts.get('0', 145)} 名，"
+            f"非参与者 {counts.get('1', 272)} 名。当前新增的是可执行比较边界：句子列联表只作描述，主检验转到学生层主题比例，"
+            "并按 Stu_ID 重抽样、检查文本长度；由于分组非随机且采集方式可能不同，任何差异都不得写成因果效应。"
+        )
+    if checkpoint == "RESULT_CARD_REVIEW":
+        return (
+            "结果卡已按三层归档：已验证的是样本连接与预处理（550 条文本、417 名成功连接学生、1223→1168 个句段）；"
+            "候选证据是 5 个可回链的关键词辅助主题；待执行的是嵌入聚类、人工一致性、监督确认、学生层稳健性和组间检验。"
+            "论文现在可以写“数据与分析候选”，但不能写模型性能、主题总体频率、显著组间差异或外部泛化。"
+        )
+    if checkpoint == "MANUSCRIPT_OUTLINE_REVIEW":
+        return (
+            "论文论证线已形成：先说明为什么学生的解题文字能呈现问题解决过程，再交代 550→417 的样本边界和"
+            "句子编码/学生聚合两个分析单位；结果部分只呈现五类可回链的关键词辅助候选，讨论部分再解释这些线索的"
+            "理论意义及尚未完成的验证。\n"
+            "章节顺序：引言与理论背景 → 数据与方法 → 候选结果 → 讨论与局限 → 审计附录。\n"
+            "主张边界：可以写样本、预处理和候选证据；不能写正式主题频率、模型性能、显著组间差异或外部泛化。\n"
+            "下一动作：按该结构先写“数据与方法”，并继续让所有数字回链到结果卡。"
+        )
     return _checkpoint_message(checkpoint)
+
+
+def _gate_message_for_project(project_id: str, gate: GateRecord | dict[str, object] | None) -> str:
+    """Render high-value evidence at publication gates instead of a status notice."""
+
+    if gate is None:
+        return ""
+    readable = gate if isinstance(gate, GateRecord) else GateRecord.model_validate(gate)
+    if readable.gate_type == "manuscript_citation_verification_approval":
+        check = _latest_artifact_body(project_id, "ManuscriptCitationVerification") or {}
+        return (
+            "完整候选论文已合并，摘要只复述正文已有内容。引用追溯检查结果："
+            f"正文内部引用 {check.get('citation_count', 0)} 条，证据库引用 {check.get('evidence_ref_count', 0)} 条，"
+            f"未匹配 {len(check.get('unverified_citation_refs', []))} 条；主数据来源"
+            f"{'已验证' if check.get('primary_data_ref_verified') else '未通过验证'}。"
+            "当前稿件定位为“候选分析稿”，因为聚类、人工一致性、监督确认和组间检验尚未执行。"
+            "下一步将进入隔离的自动审稿，只列问题，不直接改稿。"
+        )
+    if readable.gate_type == "reviewer_final_confirmation_approval":
+        review = _latest_artifact_body(project_id, "FinalReviewPacket") or {}
+        findings = [item for item in review.get("findings", []) if isinstance(item, dict)]
+        finding_lines = []
+        for item in findings[:5]:
+            excerpt = " ".join(str(item.get("excerpt", "")).split())
+            finding_lines.append(
+                f"- {item.get('severity', 'P2')}｜{item.get('location', '全文')}：{str(item.get('issue', '')).rstrip('。')}。"
+                f"定位：“{excerpt[:96]}{'…' if len(excerpt) > 96 else ''}”；来源：{item.get('source', '未记录')}。"
+            )
+        sample_check = review.get("sample_boundary_check") if isinstance(review.get("sample_boundary_check"), dict) else {}
+        return (
+            f"隔离 Reviewer 已对冻结稿完成只读审查，共发现 {len(findings)} 项：\n"
+            + "\n".join(finding_lines)
+            + "\n样本边界检查："
+            + (
+                f"{sample_check.get('raw_text_rows', '未记录')}→{sample_check.get('joined_students', '未记录')} 在正文与结果卡中一致。"
+                if sample_check.get("status") == "CONSISTENT_IN_CURRENT_MANUSCRIPT"
+                else "正文与结果卡不一致。"
+            )
+            + "审稿结论：研究链路可追溯，但证据成熟度不足以形成完成版实证论文；当前版本只可冻结为候选分析包。"
+        )
+    return _mentor_boundary_message(readable)
+
+
+def _manuscript_section_chat_message(
+    project_id: str,
+    section: str,
+    title: str,
+    section_body: str,
+) -> str:
+    """Present the substance of a generated section in the chat itself."""
+
+    result_card = _latest_artifact_body(project_id, "QualitativeResultCard") or {}
+    sample = result_card.get("data_audit") if isinstance(result_card.get("data_audit"), dict) else {}
+    preprocessing = _latest_artifact_body(project_id, "PreprocessingExecutionCandidate") or {}
+    execution = preprocessing.get("execution") if isinstance(preprocessing.get("execution"), dict) else {}
+    codebook = _latest_artifact_body(project_id, "CodebookCandidate") or {}
+    themes = [item for item in codebook.get("codebook", []) if isinstance(item, dict)]
+    if section == "methods":
+        substance = (
+            f"样本链已经写清：{sample.get('raw_text_rows', 550)} 条文本 → "
+            f"{sample.get('joined_students', 417)} 名成功连接学生；预处理得到 "
+            f"{execution.get('candidate_sentence_count', 1223)} 个候选句段，20 字符基线保留 "
+            f"{execution.get('retained_sentence_count_at_20', 1168)} 个。句子是编码单位，学生是聚合与重抽样单位。"
+            "方法节明确把关键词辅助候选与未执行的嵌入/聚类分开，没有把计划参数写成结果。"
+        )
+    elif section == "results":
+        theme_text = "、".join(
+            f"{str(item.get('working_name', '')).split('（', 1)[0]} {item.get('evidence_count', 0)}"
+            for item in themes
+        )
+        substance = (
+            f"结果节报告了样本流转和五类候选命中：{theme_text}。"
+            "这些数字被明确标注为可重叠的关键词命中句数，不是人工确认后的主题频数；"
+            "因此正文没有报告主题普遍性、显著差异或模型准确率。"
+        )
+    elif section == "introduction":
+        substance = (
+            "引言把研究定位为公开二手文本的计算辅助再分析，论证线依次连接物理问题解决过程、专家—新手差异、"
+            "语言数据的分析价值，以及计算候选与人工解释的互补。它同时声明不读取原论文结果来反推本研究结论；"
+            "当前薄弱点是文献数量与书目信息仍需在投稿前扩充核对。"
+        )
+    elif section == "discussion":
+        substance = (
+            "讨论节把结论分成三层：数据支持的是样本与预处理事实；五类主题只是理论驱动、关键词辅助的解释线索；"
+            "聚类稳定性、监督性能和组间差异仍属未完成验证。公式分句、类别重叠、语言模型偏差、同一学生多句依赖、"
+            "非随机分组和缺少外部语料均已作为限制写入。"
+        )
+    else:
+        preview = " ".join(section_body.split())[:320]
+        substance = preview + ("……" if len(section_body) > 320 else "")
+    return (
+        f"“{title}”章节候选已生成。\n"
+        f"本轮结论：{substance}\n"
+        "证据状态：章节全文和来源链已保存到右侧；未执行的方法仍标为未执行。\n"
+        "下一动作：继续生成下一节，或指定一条需要收紧的论断。"
+    )
+
+
+def _freeze_candidate_delivery(project_id: str) -> dict[str, object]:
+    """Materialize a read-only demonstration package and return its manifest."""
+
+    frozen_at = datetime.now(UTC).isoformat()
+    directory_stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    delivery_dir = (
+        storage_root
+        / "candidate-deliveries"
+        / sha256_text(project_id)[:16]
+        / directory_stamp
+    ).resolve()
+    delivery_dir.mkdir(parents=True, exist_ok=True)
+
+    manuscript = _latest_artifact_body(project_id, "ManuscriptDraftZh") or {}
+    result_card = _latest_artifact_body(project_id, "QualitativeResultCard") or {}
+    citation_check = _latest_artifact_body(project_id, "ManuscriptCitationVerification") or {}
+    review = _latest_artifact_body(project_id, "FinalReviewPacket") or {}
+    code_spec = _latest_artifact_body(project_id, "AnalysisCodeSpecificationCandidate") or {}
+    code_review = _latest_artifact_body(project_id, "AnalysisCodeReviewCandidate") or {}
+    claims = [item.model_dump(mode="json") for item in control_plane.repository.list_claims(project_id)]
+    artifact_records = control_plane.repository.list_artifacts(project_id)
+
+    sections = manuscript.get("sections") if isinstance(manuscript.get("sections"), dict) else {}
+    manuscript_lines = [f"# {sections.get('title') or manuscript.get('title') or '候选分析稿'}", ""]
+    section_titles = {
+        "abstract": "摘要", "introduction": "引言与理论背景", "methods": "数据与方法",
+        "results": "结果", "discussion": "讨论与局限", "conclusion": "结论",
+        "evidence_review": "资料与证据边界", "research_questions": "研究问题",
+        "analysis_plan": "分析方案", "expected_contribution": "预期贡献",
+        "ethics_limitations": "伦理与局限", "data_availability": "数据与代码可用性",
+        "references": "参考文献",
+    }
+    for key, value in sections.items():
+        if key == "title" or not str(value).strip():
+            continue
+        manuscript_lines.extend([f"## {section_titles.get(str(key), str(key))}", "", str(value).strip(), ""])
+
+    payloads: dict[str, str] = {
+        "manuscript.md": "\n".join(manuscript_lines).rstrip() + "\n",
+        "result_card.json": json.dumps(result_card, ensure_ascii=False, indent=2),
+        "claim_evidence.json": json.dumps(claims, ensure_ascii=False, indent=2),
+        "citation_verification.json": json.dumps(citation_check, ensure_ascii=False, indent=2),
+        "review_findings.json": json.dumps(review, ensure_ascii=False, indent=2),
+        "code_and_environment.json": json.dumps({
+            "python": sys.version,
+            "platform": platform.platform(),
+            "analysis_code_specification": code_spec,
+            "analysis_code_review": code_review,
+            "source_artifacts": [
+                {
+                    "artifact_id": item.artifact_id,
+                    "artifact_type": item.artifact_type,
+                    "version": item.version,
+                    "content_sha256": item.content_sha256,
+                    "content_uri": item.content_uri,
+                }
+                for item in artifact_records
+                if item.artifact_type in {
+                    "AnalysisCodeSpecificationCandidate", "AnalysisCodeReviewCandidate",
+                    "PreprocessingExecutionCandidate", "PatternDiscoveryCodeCandidate",
+                }
+            ],
+        }, ensure_ascii=False, indent=2),
+    }
+    files = []
+    for name, content in payloads.items():
+        path = delivery_dir / name
+        path.write_text(content, encoding="utf-8")
+        files.append({
+            "name": name,
+            "path": str(path),
+            "sha256": sha256(path.read_bytes()).hexdigest(),
+            "bytes": path.stat().st_size,
+        })
+
+    unperformed = _unperformed_candidate_actions(project_id)
+    missing = []
+    if any("模式" in item or "种子" in item for item in unperformed):
+        missing.append("正式聚类图与稳定性分布（模式发现未执行）")
+    if any("监督" in item for item in unperformed):
+        missing.append("正式模型性能表（监督确认未执行）")
+    if any("组间" in item or "学生层" in item for item in unperformed):
+        missing.append("组间检验与学生层稳健性表（标签未冻结）")
+    manuscript_file = next(item for item in files if item["name"] == "manuscript.md")
+    manifest: dict[str, object] = {
+        "project_id": project_id,
+        "frozen_at": frozen_at,
+        "manuscript_sha256": manuscript_file["sha256"],
+        "package_grade": review.get("decision") or "CANDIDATE_ANALYSIS_PACKAGE_ONLY",
+        "delivery_directory": str(delivery_dir),
+        "files": files,
+        "missing_outputs": missing,
+        "immutability": "该目录记录冻结时点的候选包；后续外部论文比较不得覆盖这些文件。",
+    }
+    manifest_path = delivery_dir / "delivery_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest["manifest_path"] = str(manifest_path)
+    return manifest
 
 
 def _guided_transition_message(
@@ -2834,43 +3105,6 @@ def _sync_project_documents(project_id: str) -> list[str]:
     return sorted(set(source_ids))
 
 
-def _project_document_prompt_context(project_id: str, query: str) -> str:
-    """Return bounded excerpts from the researcher's uploaded documents.
-
-    Uploaded files live in the project document service first. This small
-    project-local retrieval layer makes them available to ordinary dialogue as
-    well as to formal evidence turns, without putting an entire paper into
-    every model prompt.
-    """
-
-    try:
-        sources = service.list_sources(project_id)
-        if not sources:
-            return ""
-        hits = service.search(
-            EvidenceSearchRequest(
-                project_id=project_id,
-                query=query,
-                limit=6,
-            )
-        )
-        lines = [
-            "项目已上传文献（仅供本项目对话参考，尚未自动视为正式核验来源）：",
-        ]
-        for hit in hits[:6]:
-            source = service.get_source(project_id, hit.evidence.source_id)
-            lines.append(
-                f"- {source.filename} / 片段 {hit.evidence.location.chunk_index}: "
-                f"{hit.evidence.excerpt[:900]}"
-            )
-        if len(lines) == 1:
-            lines.extend(f"- {source.filename}" for source in sources[:8])
-        return "\n".join(lines)
-    except Exception as error:  # noqa: BLE001 - local context is best effort
-        logger.warning("Could not build project document prompt context for %s: %s", project_id, error)
-        return ""
-
-
 def _project_dataset_summary(project_id: str) -> str | None:
     """Read only the uploaded dataset schema for exploratory conversation.
 
@@ -2973,6 +3207,120 @@ def _qualitative_sample_flow(project_id: str, primary_data: dict[str, object]) -
         "eligible_joined_sample": len(joined_ids),
         "final_analysis_sample": final_analysis_sample,
     }
+
+
+def _dataset_freeze_candidate(project_id: str) -> dict[str, object]:
+    """Build the freeze candidate from the files that exist at approval time."""
+
+    primary_data = _registered_qualitative_primary_data(project_id)
+    if primary_data is None:
+        return {
+            "project_id": project_id,
+            "action": "dataset_freeze_hash",
+            "route": "QUALITATIVE",
+            "status": "NOT_FROZEN_NO_PRIMARY_DATA",
+            "blocking_reason": "只有完成原始资料导入、审计和处理审批后才能生成冻结哈希。",
+        }
+
+    selected_data = _qualitative_analysis_primary_data(project_id, primary_data)
+    selected_ids = sorted(str(value) for value in selected_data.get("participant_labels", []) if str(value))
+    selected_raw_ids = [value.removeprefix("stu_") for value in selected_ids]
+    selected_raw_id_set = set(selected_raw_ids)
+    all_text_ids = sorted({
+        str(item.get("participant_label", "")).removeprefix("stu_").strip()
+        for item in primary_data.get("segments", [])
+        if isinstance(item, dict) and str(item.get("participant_label", "")).strip()
+    })
+    background = _latest_project_reference_csv(project_id, "Additional_data")
+    joined_background = [
+        row for row in background
+        if str(row.get("Stu_ID", "")).strip() in selected_raw_id_set
+    ]
+    group_counts: dict[str, int] = {}
+    for row in joined_background:
+        value = str(row.get("Control_group", "")).strip()
+        if value:
+            group_counts[value] = group_counts.get(value, 0) + 1
+    sample_flow = {
+        **_qualitative_sample_flow(project_id, primary_data),
+        "final_analysis_sample": len(selected_ids),
+    }
+    background_canonical = json.dumps(
+        background, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return {
+        "project_id": project_id,
+        "action": "dataset_freeze_hash",
+        "route": "QUALITATIVE",
+        "status": "FROZEN_VERSION_CANDIDATE",
+        "frozen_at": datetime.now(UTC).isoformat(),
+        "frozen_dataset_ref": primary_data.get("source_dataset_ref"),
+        "sha256": primary_data.get("content_sha256"),
+        "background_table_sha256": sha256_text(background_canonical) if background else None,
+        "immutable_document_version": primary_data.get("document_version"),
+        "analysis_selection": "nonempty Text inner-joined to background variables by original Stu_ID",
+        "selected_student_count": len(selected_ids),
+        "selected_student_ids": selected_raw_ids,
+        "excluded_text_student_ids": sorted(set(all_text_ids) - selected_raw_id_set),
+        "selected_student_manifest_sha256": sha256_text("\n".join(selected_ids)) if selected_ids else None,
+        "sample_flow": sample_flow,
+        "group_counts": group_counts,
+        "field_dictionary": {
+            "Stu_ID": "匿名学生编号；用于文本表与背景表一对一连接",
+            "Text": "学生德语解题描述；原始文本只读保留",
+            "Control_group": "0=物理奥赛参与者，1=非参与对照组；非随机分组",
+            "Gender": "0=男性，1=女性",
+            "Class": "年级",
+            "Still_phy": "对照组是否仍在学习物理的相关信息",
+        },
+        "data_boundary": (
+            "417 名成功连接学生构成当前主分析样本；133 名文本侧未连接学生保留在原始文件但不进入需要背景变量的分析。"
+            "分组非随机且采集形式可能不同，只允许描述性或关联性解释。"
+        ),
+        "blocking_reason": None,
+    }
+
+
+def _refresh_dataset_freeze_candidate_for_gate(project_id: str, gate: GateRecord) -> dict[str, object]:
+    """Refresh a still-pending freeze candidate after the background table arrives."""
+
+    candidate = _dataset_freeze_candidate(project_id)
+    if candidate.get("status") != "FROZEN_VERSION_CANDIDATE":
+        raise ValueError(str(candidate.get("blocking_reason") or "当前数据不能冻结"))
+    artifact = next(
+        (
+            item for item in control_plane.repository.list_artifacts(project_id)
+            if item.artifact_id in gate.artifact_ids
+            and item.artifact_type == "DatasetFreezeHashCandidate"
+        ),
+        None,
+    )
+    if artifact is None:
+        raise ValueError("当前冻结 Gate 未连接 DatasetFreezeHashCandidate。")
+    refreshed = ArtifactContent(
+        project_id=project_id,
+        artifact_id=artifact.artifact_id,
+        version=artifact.version,
+        artifact_type=artifact.artifact_type,
+        schema_version="orchestration-candidate-v1",
+        body=candidate,
+    )
+    artifact_content_store.put(refreshed)
+    control_plane.repository.update_artifact(
+        artifact.model_copy(update={"content_sha256": refreshed.content_hash})
+    )
+    control_plane.repository.add_event(AuditEvent(
+        project_id=project_id,
+        event_type="DATASET_FREEZE_CANDIDATE_REFRESHED",
+        actor="orchestrator",
+        state_revision=control_plane.ensure_project(project_id).state_revision,
+        payload={
+            "artifact_id": artifact.artifact_id,
+            "selected_student_count": candidate.get("selected_student_count"),
+            "sample_flow": candidate.get("sample_flow"),
+        },
+    ))
+    return candidate
 
 
 def _external_discovery_query(research_scope: str) -> str:
@@ -3975,14 +4323,55 @@ _CGT_GUIDED_RESPONSES: dict[str, str] = {
     "constraints": "已确认句子是主要编码单位、Stu_ID 必须保留并在学生层汇总，公式保护和分句敏感性也要进入方案。你希望采用怎样的分析阶段，以及哪些结论明确不能声称？",
 }
 
+_LAYERED_AI_GUIDED_RESPONSES: dict[str, str] = {
+    "research_goal": "先不预设效果或统计方法。你最想区分的是 AI 可用时的任务表现，还是撤除 AI 后学生能否在新情境中独立建模？",
+    "research_focus": "研究重点已经指向撤除 AI 后的独立迁移。对象是哪些学习者、什么物理建模任务，以及迁移任务要保持哪些深层结构？",
+    "expected_contribution": "研究对象和主要结局已经明确。若这项研究顺利完成，你希望它主要帮助教师设计支架渐隐、评估独立迁移，还是为正式实验提供可复现方案？",
+    "data_source": "这项研究需要把团队分配、个人结局、前测、Week 1–6 课程记录、Week 8 迁移评分和 AI 事件日志连接起来。你目前实际有哪些数据文件，哪些仍只是模拟设计？",
+    "method_boundary": "团队是处理和聚类单位，学生是主要迁移结局单位；模拟结果不能外推为真实教学效果。你是否接受以 ANCOVA 加团队聚类稳健推断作为主要分析，并把过程日志限定为探索性证据？",
+    "constraints": "目前已确定要保留支架层级、渐隐节奏、无 AI 测验、盲法评分和数据可追溯性。还有哪一项伦理、课程许可或解释边界必须在正式分析前固定？",
+}
+
+_LAYERED_AI_DIALOGUE_QUESTIONS: dict[str, str] = {
+    "research_goal": "你最想区分的是 AI 可用时的任务表现，还是撤除 AI 后学生能否在新情境中独立建模？",
+    "research_focus": "对象是哪些学习者、什么物理建模任务，以及迁移任务要保持哪些深层结构？",
+    "expected_contribution": "这项研究完成后，你最希望它帮助教师设计支架渐隐、评估独立迁移，还是提供可复现的正式实验方案？",
+    "data_source": "你目前实际有哪些数据文件，哪些仍只是模拟设计？",
+    "method_boundary": "你是否接受团队作为处理和聚类单位、学生作为迁移结局单位，并以 ANCOVA 加团队聚类稳健推断作为主要分析？",
+    "constraints": "还有哪一项伦理、课程许可或解释边界必须在正式分析前固定？",
+}
+
+
+def _layered_ai_project_context(context: str | None) -> bool:
+    normalized = (context or "").strip().lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "分层生成式 ai 支架",
+            "分层 ai 支架",
+            "分层生成式ai支架",
+            "分层ai支架",
+            "支架渐隐",
+            "无 ai 延迟迁移",
+            "独立迁移",
+            "物理建模",
+            "团队级配对区组",
+            "layered ai scaffolding",
+            "delayed transfer",
+        )
+    )
+
 
 def _cgt_guided_response(
     message: str,
     collaboration: CollaborationDecision | None,
+    project_context: str | None = None,
 ) -> str | None:
     """Return a short, one-question mentor turn for the CGT intake path."""
 
     if collaboration is None or not collaboration.plan.guided_question_key:
+        return None
+    if project_context is not None and _layered_ai_project_context(project_context):
         return None
     normalized = message.strip().lower()
     cgt_markers = (
@@ -3994,30 +4383,312 @@ def _cgt_guided_response(
     return _CGT_GUIDED_RESPONSES.get(collaboration.plan.guided_question_key)
 
 
+def _layered_ai_topic_response(message: str, project_context: str | None = None) -> str | None:
+    if not _layered_ai_project_context(project_context):
+        return None
+    normalized = message.strip().lower()
+    # High-risk case turns must be deterministic and evidence-bounded.  These
+    # guards run before generic QA so writing requests cannot invent a study.
+    if "写方法" in normalized or "方法部分" in normalized:
+        return ("方法部分可按论文固定结构撰写：团队级配对区组分配与聚类、L1–L5 支架及第 4–6 周渐隐、"
+                "第 8 周完全无 AI 个人迁移、五维盲法评分、ANCOVA 加 CR2/Satterthwaite，并列 wild bootstrap 与区组随机化检验。"
+                "涉及样本和结果的句子必须链接冻结数据与执行日志。")
+    if "根据冻结结果写讨论" in normalized or "写讨论" in normalized:
+        return ("当前判断：讨论还不能进入结果解释。依据是结果卡尚未冻结，现有文件只是 24 行演示数据。"
+                "现在可以先写研究设计、模拟流程和证据缺口；任何百分比、效应量或 p 值都要等执行产物支持，理论解释也需标为待验证。"
+                "下一步是补齐冻结数据、分析日志和结果卡，再按‘数据支持—理论一致—待验证推测’组织讨论。")
+    if "围绕" in normalized and "引言" in normalized:
+        return ("引言可以围绕‘即时任务增益不等于独立迁移’组织，但只能使用已核验的论文参考文献。"
+                "当前不自动加入外部检索文献，也不把理论背景写成当前研究结果；摘要和结果数字需等待冻结结果卡。")
+    if "主要发现" in normalized or "证据支持什么" in normalized:
+        return ("当前判断：还没有可核验的主要发现。依据是演示数据未冻结，确定性分析和结果卡均没有执行产物。"
+                "因此本轮只报告研究设计、证据缺口和下一步，不把论文模拟数字、外部文献结论或候选解释写成研究发现。"
+                "下一步是补齐完整数据、执行日志和结果卡，再分别区分‘数据支持’、‘理论一致’与‘待验证推测’。")
+    if "完整候选稿" in normalized or "主张—证据核验" in normalized:
+        return ("主张—证据核验当前判定为不可通过：结果卡未冻结、演示数据不代表论文样本，且所有定量主张缺少执行产物。"
+                "应列为 P0：删除虚构数字；P1：补齐数据字典、代码、日志、证据表和引用定位；修复后再生成候选稿。")
+    if "最终案例交付包" in normalized or "冻结最终" in normalized:
+        return ("当前判断：最终案例还不能冻结。缺失交付物包括冻结数据及哈希、数据字典、确定性代码和执行日志、"
+                "主要/次要结果卡、图表、证据表、Reviewer 记录和缺失项清单。当前稿件等级是‘候选设计/模拟流程’，"
+                "下一步应先补齐这些材料，再进行最终 Reviewer 核验，不能标记为完成版实证案例。")
+    if "结果卡" in normalized and any(term in normalized for term in ("生成", "主要", "次要", "冻结")):
+        return ("当前判断：结果卡还不能生成正式版本。依据是没有可核验的确定性执行日志、完整冻结数据或模型输出。"
+                "本轮可以登记结果卡字段和证据缺口，但不能显示样本数、调整差异、95% CI 或 p 值，也不能引用论文数字。"
+                "下一步是完成真实执行，并让每个数字回链到数据哈希、代码版本和执行日志，同时标注模拟流程边界。")
+    if any(term in normalized for term in ("团队实施", "每个学生单独", "分配和分析结构", "团队级", "聚类")) and any(term in normalized for term in ("学生", "迁移", "分配", "分析")):
+        return ("处理在四人团队层级实施，并按团队作为聚类单位；Week 8 迁移在学生层级单独测量。"
+                "推荐按物理、Python、建模前测配对团队后在区组内随机分配条件，分析时使用团队聚类稳健推断，"
+                "不能把 80 名学生当作 80 个独立处理单位。")
+    if any(term in normalized for term in ("审计学生", "审计学生、团队", "主键", "唯一性", "连接关系", "每个团队只有", "六周支架开放")):
+        return ("数据审计尚未完成：当前上传的是 24 行演示宽表，不是论文的 80 名学生/20 个团队完整数据，"
+                "且同一 student_id 有多周记录。已确认可检查 student_id/team_id/class_id/block_id 的层级连接；"
+                "但缺少独立团队分配表、支架事件日志、评分者表和完整 Week 8 记录，因此无法据此确认每团队单一条件、"
+                "每班双条件或六周渐隐忠实度；这些缺口必须阻断冻结。")
+    if any(term in normalized for term in ("生成数据审计报告", "冻结版本", "样本流转", "哈希", "缺失清单")):
+        return ("当前判断：数据暂不能冻结。依据是目前只有 primary_dataset.csv（24 行、21 列）演示文件，尚未形成完整样本流转、"
+                "独立数据字典、哈希清单和支架事件日志。下一步应补齐这些材料；演示宽表不能作为论文数据，也不能用行号替代缺失主键。")
+    if (("次要结局" in normalized and any(term in normalized for term in ("列出", "分成", "预设", "处理", "重复"))) or "重复测量" in normalized):
+        return ("按论文预设列出次要结局：课程末建模能力、动机、焦虑、认知负荷、Week 1–6 代码质量和错误率。"
+                "只使用论文已有时间结构；重复测量模型、缺失规则和 FDR 应在分析计划中预先固定，不能临时添加 NASA-TLX、STAI、"
+                "额外时间点或未预设模型。")
+    if "五个 ai 使用过程指标" in normalized or "高层支架采纳" in normalized:
+        return ("论文中的五个过程指标应原样保留：高层支架采纳、直接答案比例、成功修改、验证比例、独立尝试时长。"
+                "它们只能作为 AI 使用行为的探索性描述/关联，不能直接叫学习机制；替代解释包括任务难度、学生先前能力、"
+                "提示熟练度和日志缺失。")
+    if "摘要" in normalized and "结果" in normalized:
+        return ("当前不能写入定量摘要或结果：结果卡尚未冻结，且上传文件只是 24 行演示数据。"
+                "可先写研究设计、模拟研究声明和证据缺口；禁止出现 N=42、百分比、效应量、p 值或任何未经执行的数字。")
+    if any(term in normalized for term in (
+        "真正帮助", "真正学会迁移", "ai 可用时", "ai 可用",
+        "支架撤除后", "撤除 ai 后", "撤除ai后",
+    )) and "迁移" in normalized:
+        return (
+            "先把两个问题分开：AI 可用时能否更快或更顺利完成任务，和撤除 AI 后能否在新情境中独立迁移、独立重建模型，"
+            "不是同一个结局。这个案例更适合把后者作为核心问题，前者作为课程内的次要表现；先不预设哪一组一定更好。"
+        )
+    if any(term in normalized for term in ("对象是大一", "课程用 python", "抛体", "阻尼振动", "热传导")):
+        return (
+            "这是一组计算物理建模任务，不应把‘代码能运行’等同于建模能力。建议把任务证据拆成物理模型与假设、"
+            "方程和边界、算法与代码、验证与误差、解释与迁移五个维度；Week 8 再用新情境检验这些结构能否独立重建。"
+        )
+    if any(term in normalized for term in ("比较分层", "常规支持", "不是一开始就给完整答案", "按需开放")):
+        return (
+            "可以把干预写成可审计的 L1–L5：L1 元认知目标/变量/假设/验证，L2 概念关系，L3 方程与建模，"
+            "L4 基于报错和现有代码的调试，L5 局部示例或函数。对照组应保持教师、任务、课时、团队规模和评分标准一致；"
+            "两组比较的是‘分层支架方案’整体差异，不能拆成 AI 本身或帮助剂量的单独效果。"
+        )
+    if any(term in normalized for term in ("四人团队", "每个学生单独", "分配和分析结构", "团队实施支持")):
+        return (
+            "推荐团队级配对区组随机、个人级主要结局：先按物理、Python 和建模前测配对团队，区组内随机分配条件；"
+            "处理在团队层级分配并按团队聚类，Week 8 迁移在学生层级测量。这样既保留课堂实施单位，也避免把 80 名学生误当成 80 个独立处理单位。"
+        )
+    if any(term in normalized for term in ("研究合同", "一页研究合同")):
+        return (
+            "研究合同（可修改草案）：目标是检验分层 AI 支架撤除后是否与无 AI 独立迁移相关；RQ1 为课程末建模，RQ2 为 Week 8 个人无 AI 延迟迁移，"
+            "RQ3 为 AI 日志探索性关联，RQ4 为动机、焦虑、认知负荷、代码质量和错误率。团队是分配/聚类单位，学生是结局单位；"
+            "主分析预设 ANCOVA + 配对区组固定效应 + 团队聚类稳健推断。当前材料是模拟研究，不能外推真实教学效果，也不提前写入任何结果数字。"
+        )
+    if any(term in normalized for term in ("l1", "l2", "l3", "l4", "l5", "复现干预", "操作定义")):
+        return (
+            "仅写 L1–L5 和‘六周渐隐’还不够复现。需补齐每层触发条件、学生先提交的证据、输出边界、升级/降级规则、"
+            "第 4–6 周开放比例、异常请求处理和日志字段；建议按 TIDieR 记录材料、提供者、剂量、渐隐、忠实度与偏离，并记录每次实际支架事件。"
+        )
+    if any(term in normalized for term in ("人工生成数据", "正式研究还没有招募", "伦理", "知情同意", "数据安全")):
+        return (
+            "当前是人工生成数据的流程验证，不构成人体研究，也不能把模拟结果写成教学效果。未来真实研究需单独完成伦理审批、"
+            "知情同意、去标识化、AI 日志采集授权、评分者培训、量表信效度和预注册；模拟研究与真实研究的样本、结论和外推必须分开标注。"
+        )
+    if any(term in normalized for term in ("没有实际执行产物", "报告调整差异", "p 值", "如何标记模拟结果")):
+        return (
+            "没有实际执行日志、冻结数据和结果卡时，不能报告调整差异、置信区间或 p 值，也不能把论文中的封存数字当作当前结果。"
+            "这些数字只有在本轮真实执行产物支持后才能进入结果卡；若使用人工生成数据，必须标为‘模拟研究流程证据’，明确不能外推为真实教学效果。"
+        )
+    if any(term in normalized for term in ("delta-adjusted", "缺失敏感性", "完整案例")):
+        return (
+            "完整案例和 δ-adjusted 缺失敏感性都尚未执行时，只能先登记分析规格：缺失位置、实验组不利/有利假设、δ 值、"
+            "输出字段和判断规则。不能预先填入 6.96、6.41、7.51 或任何 p 值；执行后要比较方向是否保持，并说明这不等于证明缺失机制可忽略。"
+        )
+    if any(term in normalized for term in ("扫描当前研究", "因果措辞", "提高", "促进", "导致", "机制降级")):
+        return (
+            "措辞扫描建议：把‘提高/促进/导致’改为‘与预设方向一致’或‘调整差异’，把‘机制’改为‘探索性关联’或‘待验证解释’。"
+            "只有真实随机分配、干预忠实度、预注册和独立迁移结局同时有可核验执行证据，才可谨慎讨论处理效应；AI 日志仍不能直接称为学习机制。"
+        )
+    # Keep the code-review contract ahead of the broader Reviewer branch;
+    # "独立 Code Reviewer" also contains the generic reviewer marker.
+    if any(term in normalized for term in ("code reviewer", "独立 code reviewer", "层级错配", "数据泄漏", "模拟数字写死", "自由度")):
+        return (
+            "独立 Code Reviewer 只报告问题和修改建议，不替研究者批准执行：重点检查团队处理与聚类、前测信息泄漏、"
+            "评分者盲法、过程指标越权、模拟标记、缺失处理和自由度。代码生成、审查和执行批准必须分开，并保留审查记录。"
+        )
+    if any(term in normalized for term in ("reviewer", "审稿", "p0", "p1", "p2", "冻结稿", "证据表")):
+        return (
+            "隔离 Reviewer 应只读冻结稿、结果卡和证据表，按 P0/P1/P2 报告问题，不直接改稿。优先核验：模拟声明是否保留、"
+            "团队聚类是否正确、过程指标是否被写成机制、代码质量置信区间是否跨零、缺失敏感性是否完整、引用和数字是否可追溯。"
+            "当前若缺少冻结产物，应输出‘无法判定’和缺失清单，而不是给出通过结论。"
+        )
+    if any(term in normalized for term in ("评分量规", "评分流程", "评分者不知道", "盲法评分")):
+        return (
+            "建议用五维量规：物理模型正确性、假设与边界、算法与代码、验证与误差、解释与迁移，每维 0–4 分后换算为 0–100。"
+            "两名不知道处理条件的评分者独立评至少 20% 样本，先用锚定样例培训校准，再报告 ICC(2,k) 和平均绝对差；评分一致性高不等于量规无偏或任务有效。"
+        )
+    if any(term in normalized for term in ("week 8", "表面情境", "训练题记忆", "完全无关的新题")):
+        return (
+            "Week 8 任务应满足‘深层结构等价、表面情境新颖、建模与验证逻辑可迁移’：保留核心物理关系，改变情境、参数、"
+            "数据形式和叙事，并做任务等价性评审。可允许 Python IDE、标准库、公式表和离线教材；禁止生成式 AI、搜索、同伴协作和教师即时提示。"
+        )
+    if any(term in normalized for term in ("code reviewer", "独立 code reviewer", "层级错配", "数据泄漏", "模拟数字写死", "自由度")):
+        return (
+            "独立 Code Reviewer 只报告问题和修改建议，不替研究者批准执行：重点检查团队处理与聚类、前测信息泄漏、"
+            "评分者盲法、过程指标越权、模拟标记、缺失处理和自由度。代码生成、审查和执行批准必须分开，并保留审查记录。"
+        )
+    if any(term in normalized for term in ("数据表", "最低字段", "数据需求", "不假设文件已经存在")):
+        return (
+            "最低数据包包括：学生表（student_id、team_id、class_id、block_id、三项前测）、团队分配表（condition、scaffold_version）、"
+            "Week 1–6 课程结果、Week 8 无 AI 迁移、AI 事件日志、支架版本表、评分者表和数据生成/版本清单。每表需写主键、时间字段、缺失规则及是否进入确认性分析。"
+        )
+    if any(term in normalized for term in ("没有实际执行产物", "报告调整差异", "p 值", "如何标记模拟结果")):
+        return (
+            "没有实际执行日志、冻结数据和结果卡时，不能报告调整差异、置信区间或 p 值，也不能把论文中的封存数字当作当前结果。"
+            "这些数字只有在本轮真实执行产物支持后才能进入结果卡；若使用人工生成数据，必须标为‘模拟研究流程证据’，明确不能外推为真实教学效果。"
+        )
+    if any(term in normalized for term in ("delta-adjusted", "缺失敏感性", "完整案例")):
+        return (
+            "完整案例和 δ-adjusted 缺失敏感性都尚未执行时，只能先登记分析规格：缺失位置、实验组不利/有利假设、δ 值、"
+            "输出字段和判断规则。不能预先填入 6.96、6.41、7.51 或任何 p 值；执行后要比较方向是否保持，并说明这不等于证明缺失机制可忽略。"
+        )
+    if any(term in normalized for term in ("扫描当前研究叙事", "因果措辞", "提高", "促进", "导致", "机制降级")):
+        return (
+            "措辞扫描建议：把‘提高/促进/导致’改为‘与预设方向一致’或‘调整差异’，把‘机制’改为‘探索性关联’或‘待验证解释’。"
+            "只有真实随机分配、干预忠实度、预注册和独立迁移结局同时有可核验执行证据，才可谨慎讨论处理效应；AI 日志仍不能直接称为学习机制。"
+        )
+    if any(term in normalized for term in ("reviewer", "审稿", "p0", "p1", "p2", "冻结稿", "证据表")):
+        return (
+            "隔离 Reviewer 应只读冻结稿、结果卡和证据表，按 P0/P1/P2 报告问题，不直接改稿。优先核验：模拟声明是否保留、"
+            "团队聚类是否正确、过程指标是否被写成机制、代码质量置信区间是否跨零、缺失敏感性是否完整、引用和数字是否可追溯。"
+            "当前若缺少冻结产物，应输出‘无法判定’和缺失清单，而不是给出通过结论。"
+        )
+    if any(term in normalized for term in ("提供与论文设计一致的模拟数据", "识别文件", "只做文件", "尚未导入")):
+        return (
+            "当前这条消息没有附可读取的数据文件，因此只能记录为‘尚未导入’，不能引用论文中的 80 名学生、20 个团队或任何结果数字。"
+            "收到 CSV 后我会先报告实际文件名、大小、字段、编码和哈希，只做接收核对，不清洗、不建模、不写作。"
+        )
+    if any(term in normalized for term in ("主要结局", "无 ai 迁移", "独立迁移任务", "团队和学生", "分析角色")):
+        return (
+            "本案例的主要结局应是第 8 周生成式 AI 完全关闭后的个人无 AI 延迟迁移得分，"
+            "而不是课程内完成速度或有 AI 条件下的成绩。迁移题保持核心物理关系、建模步骤和验证逻辑，"
+            "但改变表面情境、参数、数据形式和叙事。团队层级承担处理分配与聚类，学生层级承担迁移结局测量；"
+            "分析时需按团队聚类，不能把 80 名学生当成 80 个独立处理单位。当前只确定设计边界，尚未产生任何真实效果。"
+        )
+    if any(term in normalized for term in ("estimand", "ancova", "cr2", "bootstrap", "固定效应", "主要模型")):
+        return (
+            "建议把 estimand 写成：控制物理、Python 和建模前测并加入配对区组固定效应后，"
+            "分层 AI 支架相对常规支持在第 8 周个人无 AI 延迟迁移得分上的平均调整差异。"
+            "主分析可用 ANCOVA，标准误按团队聚类并报告 CR2/Satterthwaite；20 个团队较少，"
+            "并列 wild cluster bootstrap 与区组内随机化检验。"
+        )
+
+
+def _layered_ai_guided_response(
+    collaboration: CollaborationDecision | None,
+    project_context: str | None = None,
+) -> str | None:
+    if not _layered_ai_project_context(project_context):
+        return None
+    if collaboration is None or not collaboration.plan.guided_question_key:
+        return None
+    return _LAYERED_AI_GUIDED_RESPONSES.get(collaboration.plan.guided_question_key)
+
+
+def _layered_ai_topic_question(message: str) -> str | None:
+    """Choose one next question that follows an explicit case topic."""
+
+    normalized = message.strip().lower()
+    if any(term in normalized for term in ("真正帮助", "真正学会迁移", "ai 可用时", "ai 可用")) and "迁移" in normalized:
+        return "你愿意把撤除 AI 后的新情境独立迁移得分设为主要结局吗？"
+    if any(term in normalized for term in ("主要结局", "无 ai 迁移", "独立迁移任务")):
+        return "迁移任务的评分应重点区分模型、代码、验证和解释中的哪些维度？"
+    if any(term in normalized for term in ("对象是大一", "课程用 python", "抛体", "阻尼振动", "热传导")):
+        return "你希望分层 AI 支架与哪一种常规支持进行比较？"
+    if any(term in normalized for term in ("比较分层", "常规支持", "按需开放")):
+        return "课堂实施以团队为单位时，你是否仍要在撤除 AI 后对每名学生单独测量迁移？"
+    if any(term in normalized for term in ("四人团队", "每个学生单独", "分配和分析结构")):
+        return "是否接受团队级配对区组随机，并把团队作为处理和聚类单位？"
+    if any(term in normalized for term in ("研究合同", "一页研究合同")):
+        return "请确认这份研究合同作为暂定版本，还是要先修改某一项研究问题或解释边界？"
+    if any(term in normalized for term in ("l1", "l2", "l3", "l4", "l5", "复现干预", "操作定义")):
+        return "你能否固定每层支架的触发条件、输出上限和第 4–6 周渐隐规则？"
+    if any(term in normalized for term in ("人工生成数据", "正式研究还没有招募", "伦理", "知情同意")):
+        return "未来真实研究是否已有伦理审批路径和 AI 日志采集授权方案？"
+    if any(term in normalized for term in ("评分量规", "评分流程", "盲法评分")):
+        return "你希望双评比例固定为至少 20%，还是按评分者分歧触发追加复评？"
+    if any(term in normalized for term in ("week 8", "表面情境", "训练题记忆")):
+        return "你是否接受在正式测验前增加独立的任务等价性评审？"
+    if any(term in normalized for term in ("数据表", "最低字段", "数据需求")):
+        return "你现在能提供这些表中的哪些文件，哪些仍只是计划字段？"
+    if any(term in normalized for term in ("estimand", "主要模型", "cr2", "固定效应")):
+        return "你是否确认这份 estimand 和团队聚类推断作为 RQ2 的暂定主分析规格？"
+    if any(term in normalized for term in ("没有实际执行产物", "调整差异", "p 值", "模拟结果")):
+        return "你是否要先生成结果卡字段和证据缺口清单，而不是填入任何结果数字？"
+    if any(term in normalized for term in ("缺失敏感性", "delta-adjusted", "完整案例")):
+        return "你是否确认先冻结缺失位置、δ 值和不利/有利方向，再等待实际执行产物？"
+    if any(term in normalized for term in ("因果措辞", "提高", "促进", "导致", "机制")):
+        return "你希望把这套措辞边界写入摘要、结果和讨论三个位置吗？"
+    if any(term in normalized for term in ("reviewer", "审稿", "p0", "p1", "p2", "冻结稿")):
+        return "当前是否已有冻结稿、结果卡和证据表可供 Reviewer 只读核验？"
+    if any(term in normalized for term in ("提供与论文设计一致的模拟数据", "识别文件")):
+        return "请上传或选择实际 CSV 文件；收到后我只做文件接收和字段核对。"
+    return None
+
+
+def _layered_ai_quality_guard(question: str, answer: str, project_context: str | None) -> str:
+    """Append only non-negotiable study boundaries omitted by a model draft."""
+
+    if not _layered_ai_project_context(project_context):
+        return answer
+    normalized = question.strip().lower()
+    additions: list[str] = []
+    if any(term in normalized for term in ("estimand", "主要模型", "固定效应", "聚类层级")):
+        if "cr2" not in answer.lower() or "团队" not in answer:
+            additions.append("方法边界提醒：处理在团队层级分配，标准误必须按团队聚类并报告 CR2/Satterthwaite；不能把 80 名学生当成 80 个独立处理单位。")
+    if any(term in normalized for term in ("过程指标", "ai 日志", "验证率", "学习机制", "认知卸载")):
+        if "探索性" not in answer:
+            additions.append("解释边界提醒：AI 日志指标只能作为探索性关联，不能直接命名为学习机制。")
+    if any(term in normalized for term in ("结果卡", "显著性", "效应量", "p 值", "模拟结果", "缺失敏感性", "delta-adjusted")):
+        if "模拟" not in answer or "真实教学效果" not in answer:
+            additions.append("证据边界提醒：当前论文数字若来自人工生成数据，只能标为模拟研究流程证据，不能外推为真实教学效果。")
+    if any(term in normalized for term in ("因果措辞", "提高", "促进", "导致")):
+        if "探索性关联" not in answer and "与预设方向一致" not in answer:
+            additions.append("措辞提醒：在真实执行证据充分前，使用“与预设方向一致”“调整差异”或“探索性关联”，不要写成提高、促进或导致。")
+    return answer + ("\n\n" + "\n".join(additions) if additions else "")
+
+
 def _cgt_analysis_instruction_response(project_id: str, message: str) -> str | None:
     """Bound CGT analysis instructions to persisted execution evidence."""
 
     normalized = message.strip().lower()
     code_spec_request = "只生成分析代码规格" in normalized
+    code_spec_request = code_spec_request or (
+        "代码模块" in normalized
+        and all(term in normalized for term in ("输入", "输出", "失败条件", "测试"))
+    )
     preprocessing_code_request = (
         "可运行代码候选" in normalized
         and "预处理" in normalized
         and "不要生成任何主题标签" in normalized
+    ) or (
+        "第一个可运行模块" in normalized
+        and "德语分句" in normalized
+        and any(term in normalized for term in ("不生成主题", "不要生成主题"))
     )
     pre_execution_review_request = (
         any(term in normalized for term in ("执行前审查", "审查这段代码"))
         and any(term in normalized for term in ("nan", "stu_id", "公式", "原始文件"))
+    ) or (
+        "代码审稿人" in normalized
+        and "原始文件" in normalized
+        and any(term in normalized for term in ("分析单位", "学生和句子", "学生与句子"))
     )
     pattern_code_request = (
         "生成模式发现代码" in normalized
         and "umap" in normalized
         and "hdbscan" in normalized
+    ) or (
+        "进入模式发现" in normalized
+        and "聚类方案" in normalized
+        and any(term in normalized for term in ("随机稳定性", "不预设主题数"))
     )
-    result_card_request = _conversation_requests_result_card(normalized)
+    manuscript_outline_request = any(
+        term in normalized for term in ("论文论证线", "章节结构", "论文大纲", "不写完整正文")
+    )
+    result_card_request = _conversation_requests_result_card(normalized) and not manuscript_outline_request
     method_boundary_request = (
         "三阶段" in normalized
         and "人机协作" in normalized
         and any(term in normalized for term in ("是否适合", "路线是否", "判断这个路线"))
+    ) or (
+        "推荐一条" in normalized
+        and "分析路线" in normalized
+        and any(term in normalized for term in ("机器与研究判断", "语义解释", "可复现"))
     )
     background_plan_request = (
         "背景变量表" in normalized
@@ -4038,16 +4709,23 @@ def _cgt_analysis_instruction_response(project_id: str, message: str) -> str | N
         "合并建议" in normalized
         and "数据相似性证据" in normalized
         and "物理问题解决理论证据" in normalized
+    ) or (
+        "候选之间" in normalized
+        and "重叠" in normalized
+        and "反例" in normalized
+        and any(term in normalized for term in ("保留", "拆分", "合并"))
     )
     codebook_request = "codebook" in normalized and any(
         term in normalized for term in ("编码计划", "人工修订", "候选")
     )
-    supervised_spec_request = "监督确认代码" in normalized or (
+    supervised_spec_request = "监督确认代码" in normalized or "模式确认方案" in normalized or (
         "监督确认" in normalized and "生成" in normalized and "代码" in normalized
     )
-    supervised_run_request = any(term in normalized for term in ("批准执行模式确认", "实际交叉验证输出"))
+    supervised_run_request = any(term in normalized for term in (
+        "批准执行模式确认", "实际交叉验证输出", "批准按你建议的方案执行"
+    ))
     group_request = any(term in normalized for term in ("奥赛参与者", "非参与者")) and any(
-        term in normalized for term in ("请比较", "列联表", "卡方检验", "bootstrap")
+        term in normalized for term in ("请比较", "我想比较", "列联表", "卡方检验", "bootstrap", "主分析")
     )
     if not any((
         code_spec_request,
@@ -4107,23 +4785,27 @@ def _cgt_analysis_instruction_response(project_id: str, message: str) -> str | N
         sample_flow = result_card.get("data_audit") if isinstance(result_card.get("data_audit"), dict) else {}
         unperformed = _unperformed_candidate_actions(project_id)
         response = (
-            "结果卡候选已经生成并连接现有数据、代码候选和执行记录。"
-            f"样本流转为：原始记录 {sample_flow.get('raw_text_rows', '未记录')} 条，"
-            f"空文本 {sample_flow.get('missing_text_rows', '未记录')} 条，"
-            f"非空文本 {sample_flow.get('nonempty_text_rows', '未记录')} 条，"
-            f"成功连接 {sample_flow.get('joined_students', '未记录')} 名。"
+            "结果卡已生成，并已连接当前数据、代码候选和执行记录。\n"
+            "本轮结论：样本边界和预处理事实可以报告。\n"
+            f"依据：原始记录 {sample_flow.get('raw_text_rows', '未记录')} 条；"
+            f"空文本 {sample_flow.get('missing_text_rows', '未记录')} 条；"
+            f"非空文本 {sample_flow.get('nonempty_text_rows', '未记录')} 条；"
+            f"成功连接 {sample_flow.get('joined_students', '未记录')} 名。\n"
         )
         if unperformed:
             response += (
-                f"但{'、'.join(unperformed)}尚未实际执行，因此当前只能是待审查结果卡，不能正式冻结；"
-                "这些未执行项的性能、效应量和稳健性数字均不得进入论文。"
+                f"风险：{'、'.join(unperformed)}尚未实际执行。\n"
+                "当前等级：候选结果卡；未执行项的性能、效应量和稳健性数字不得进入论文。\n"
+                "下一动作：沿现有证据写作，或补齐模型/标签后再升级结果。"
             )
         return response
 
     if method_boundary_request:
         return (
-            "这条路线适合，但三个阶段必须严格分开：先用中性名称探索可回链模式，再由研究者依据原文修订定义和边界，"
-            "最后只在人工标签冻结后做监督确认。计算结果只能提供候选与稳定性证据，不能自动决定主题数量、名称或理论含义。"
+            "我建议采用“开放模式发现—证据回链与定义修订—冻结标签后的独立确认”三阶段路线。"
+            "第一阶段由算法扩大阅读规模但只产生中性候选；第二阶段根据代表句、边界句和反例形成操作性定义；"
+            "第三阶段才检验候选能否稳定覆盖全语料。这样既避免纯词频丢失语义，也避免先定主题再让模型证明。"
+            "句子用于编码，学生用于聚合和推断；下一步先审计原始文本，确认这两个单位能否可靠连接。"
         )
 
     if background_plan_request:
@@ -4664,353 +5346,6 @@ def _dialogue_version_change(
     )
 
 
-_RESEARCH_OUTPUT_HEADINGS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("research_question", ("研究问题与研究目标", "研究问题与方案", "研究问题", "核心问题", "主要问题")),
-    ("research_objective", ("研究目标", "研究目的", "研究意义")),
-    ("hypotheses", ("研究假设", "假设")),
-    ("research_object", ("研究对象", "研究场景", "样本对象", "样本与分组")),
-    ("study_design", ("研究设计", "实验设计", "研究方案")),
-    ("methods", ("研究方法", "实验方法", "方法")),
-    ("measurement", ("变量与测量", "变量", "测量指标", "主要指标", "结果变量", "主要结果")),
-    ("data_collection", ("数据收集", "资料收集", "数据来源")),
-    ("analysis_plan", ("数据分析", "统计分析", "分析计划", "分析方法")),
-    ("ethics_limitations", ("伦理", "伦理与局限", "局限", "研究局限")),
-)
-
-
-def _research_output_sections(answer_text: str) -> dict[str, str]:
-    """Extract readable heading sections without requiring a second LLM call."""
-
-    sections: dict[str, list[str]] = {}
-    current: str | None = None
-    for raw_line in answer_text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            if current is not None:
-                sections.setdefault(current, []).append("")
-            continue
-        candidate = re.sub(r"^[#*\-\s\d一二三四五六七八九十百、.)]+", "", line)
-        candidate = candidate.strip().strip("*_`")
-        matched: str | None = None
-        remainder = ""
-        for key, aliases in _RESEARCH_OUTPUT_HEADINGS:
-            for alias in aliases:
-                if candidate == alias:
-                    matched = key
-                    break
-                if candidate.startswith(alias) and candidate[len(alias):].lstrip().startswith((":", "：")):
-                    matched = key
-                    remainder = candidate[len(alias):].lstrip(" :：")
-                    break
-            if matched is not None:
-                break
-        if matched is not None:
-            current = matched
-            sections.setdefault(current, [])
-            if remainder:
-                sections[current].append(remainder)
-            continue
-        if current is not None:
-            sections.setdefault(current, []).append(line)
-    return {
-        key: "\n".join(value).strip()
-        for key, value in sections.items()
-        if "\n".join(value).strip()
-    }
-
-
-def _research_output_list(value: str | None, fallback: list[str] | None = None) -> list[str]:
-    if not value:
-        return list(fallback or [])
-    items: list[str] = []
-    for line in value.splitlines():
-        cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十百]+[、.)])\s*", "", line).strip()
-        if cleaned:
-            items.append(cleaned)
-    return items or list(fallback or [])
-
-
-def _research_output_is_structured(question: str, answer_text: str, sections: dict[str, str]) -> bool:
-    """Only promote substantive research-planning answers to workbench cards."""
-
-    if len(answer_text.strip()) < 180:
-        return False
-    question_lower = question.lower()
-    answer_lower = answer_text.lower()
-    question_signals = (
-        "研究问题", "研究方案", "研究设计", "研究方法", "研究假设",
-        "研究对象", "变量", "样本", "数据分析", "实验组", "对照组",
-        "research question", "study design", "research protocol",
-    )
-    answer_signals = (
-        "研究问题", "研究目标", "研究假设", "研究对象", "研究设计",
-        "研究方法", "变量", "样本", "数据收集", "数据分析", "伦理",
-        "局限", "hypothes", "method", "analysis", "sampling",
-    )
-    question_score = sum(marker in question_lower for marker in question_signals)
-    answer_score = sum(marker in answer_lower for marker in answer_signals)
-    return (
-        question_score >= 1
-        and answer_score >= 3
-        and (
-            len(sections) >= 2
-            or answer_score >= 5
-        )
-    )
-
-
-def _persist_conversational_research_outputs(
-    *,
-    project_id: str,
-    request: ConversationCommandRequest,
-    answer: QAAnswerResponse,
-    forced_output_kind: str | None = None,
-) -> bool:
-    """Bridge substantive conversational output into provisional workbench artifacts.
-
-    The normal route is still the orchestration workflow. This projection is
-    the safety net for a discussion turn that produced a real candidate anyway:
-    it keeps the result reviewable without pretending that it is approved.
-    """
-
-    answer_text = answer.answer.strip()
-    sections = _research_output_sections(answer_text)
-    normalized_question = request.message.strip().lower()
-    artifact_specs: list[tuple[str, str, dict[str, object]]] = []
-
-    turn_key = answer.turn_id or request.client_turn_id or sha256_text(
-        f"{project_id}|{request.message}|{answer_text}"
-    )[:24]
-    safe_turn_key = re.sub(r"[^A-Za-z0-9_.:-]+", "-", turn_key)[:96]
-    provenance = {
-        "source": "conversation_llm_answer",
-        "conversation_id": answer.conversation_id,
-        "turn_id": answer.turn_id or request.client_turn_id,
-        "requires_confirmation": True,
-        "source_question": request.message[:4000],
-    }
-    if _research_output_is_structured(request.message, answer_text, sections):
-        artifact_specs.extend([
-            ("research-question", "ResearchQuestionTree", {
-                "project_id": project_id,
-                "title": "对话生成的研究问题候选",
-                "primary_question": sections.get("research_question") or answer_text[:1000],
-                "research_questions": _research_output_list(sections.get("research_question")),
-                "research_objective": sections.get("research_objective", ""),
-                "hypotheses": _research_output_list(sections.get("hypotheses")),
-                "research_object": sections.get("research_object", ""),
-                "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
-                "requires_confirmation": True,
-                "raw_answer": answer_text,
-                "provenance": provenance,
-            }),
-            ("study-protocol", "StudyProtocolCandidate", {
-                "project_id": project_id,
-                "title": "对话生成的研究方案候选",
-                "design_type": sections.get("study_design", "研究设计待从完整回答中确认"),
-                "primary_outcome": sections.get("measurement", "主要结果指标待确认"),
-                "sampling_approach": sections.get("research_object", "研究对象与样本边界待确认"),
-                "variables": _research_output_list(sections.get("measurement")),
-                "analysis_plan": sections.get("analysis_plan", "分析计划待确认"),
-                "hypotheses": _research_output_list(sections.get("hypotheses")),
-                "methods": sections.get("methods", ""),
-                "data_collection": sections.get("data_collection", ""),
-                "ethics_limitations": sections.get("ethics_limitations", ""),
-                "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
-                "requires_confirmation": True,
-                "raw_answer": answer_text,
-                "provenance": provenance,
-            }),
-        ])
-
-    code_requested = (
-        forced_output_kind == "code"
-        or _direct_conversation_output_request(request.message) == "code"
-    ) and any(
-        token in answer_text for token in ("```", "import ", "def ", "class ", "pandas", "numpy")
-    )
-    if code_requested:
-        fenced = re.search(r"```(?:python|py)?\s*(.*?)```", answer_text, re.IGNORECASE | re.DOTALL)
-        source_code = (fenced.group(1) if fenced else answer_text).strip()
-        artifact_specs.append(("python-code", "PhysicsCodeValidationCandidate", {
-            "project_id": project_id,
-            "title": "对话生成的 Python 代码候选",
-            "language": "python",
-            "source_code": source_code,
-            "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
-            "requires_human_review": True,
-            "provenance": provenance,
-        }))
-
-    paper_requested = (
-        len(answer_text) >= 220
-        and (
-        forced_output_kind == "manuscript"
-        or _direct_conversation_output_request(request.message) == "manuscript"
-            or (
-                "论文" in normalized_question
-                and any(marker in normalized_question for marker in ("生成", "写", "输出", "保存"))
-            )
-            or any(marker in normalized_question for marker in ("manuscript", "write the paper", "generate manuscript"))
-        )
-    )
-    if paper_requested:
-        title = sections.get("research_question", "").splitlines()[0][:160] or "对话生成的候选论文"
-        artifact_specs.append(("manuscript", "ManuscriptDraftZh", {
-            "project_id": project_id,
-            "title": title,
-            "sections": {
-                "title": title,
-                "abstract": sections.get("research_objective", ""),
-                "body": answer_text,
-            },
-            "full_text": answer_text,
-            "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
-            "requires_human_review": True,
-            "provenance": provenance,
-        }))
-
-    if not artifact_specs:
-        return False
-
-    saved_any = False
-    for suffix, artifact_type, body in artifact_specs:
-        artifact_id = f"conversation:{project_id}:{safe_turn_key}:{suffix}"
-        existing_content = artifact_content_store.get(project_id, artifact_id)
-        if existing_content is not None:
-            if artifact_store.get(project_id, artifact_id) is None:
-                artifact_store.put(
-                    ArtifactRef(
-                        artifact_id=artifact_id,
-                        project_id=project_id,
-                        artifact_type=existing_content.artifact_type,
-                        version=existing_content.version,
-                        content_uri=(
-                            f"artifact-content://{project_id}/{artifact_id}/{existing_content.version}"
-                        ),
-                        sha256=existing_content.content_hash or sha256_text(
-                            existing_content.model_dump_json()
-                        ),
-                        created_at=existing_content.created_at,
-                        created_by="conversation_llm",
-                        status="CANDIDATE",
-                    )
-                )
-            continue
-        saved_content = artifact_content_store.put(
-            ArtifactContent(
-                project_id=project_id,
-                artifact_id=artifact_id,
-                version=1,
-                artifact_type=artifact_type,
-                schema_version="conversational-research-output-v1",
-                body=body,
-            )
-        )
-        artifact_store.put(
-            ArtifactRef(
-                artifact_id=artifact_id,
-                project_id=project_id,
-                artifact_type=artifact_type,
-                version=saved_content.version,
-                content_uri=f"artifact-content://{project_id}/{artifact_id}/{saved_content.version}",
-                sha256=saved_content.content_hash or sha256_text(saved_content.model_dump_json()),
-                created_at=saved_content.created_at,
-                created_by="conversation_llm",
-                status="CANDIDATE",
-            )
-        )
-        saved_any = True
-    return saved_any
-
-
-def _direct_conversation_output_request(message: str) -> str | None:
-    """Return the requested direct workbench output kind, if any."""
-
-    normalized = message.strip().lower()
-    action_markers = (
-        "生成", "写", "输出", "提供", "保存", "整理", "generate", "write", "create",
-    )
-    if not any(marker in normalized for marker in action_markers):
-        return None
-    if any(
-        marker in normalized
-        for marker in (
-            "python代码", "python 代码", "分析代码", "代码校验", "代码候选",
-            "生成代码", "写代码", "generate code", "python code",
-        )
-    ):
-        return "code"
-    if any(
-        marker in normalized
-        for marker in (
-            "候选论文", "论文草稿", "论文初稿", "生成论文", "写论文",
-            "完整论文", "论文正文", "manuscript", "write the paper",
-        )
-    ):
-        return "manuscript"
-    return None
-
-
-def _persist_forced_manuscript_candidate(
-    *,
-    project_id: str,
-    request: ConversationCommandRequest,
-    answer: QAAnswerResponse,
-) -> None:
-    """Persist a direct manuscript response even if another projection fails."""
-
-    answer_text = answer.answer.strip()
-    turn_key = answer.turn_id or request.client_turn_id or sha256_text(
-        f"{project_id}|{request.message}|{answer_text}"
-    )[:24]
-    safe_turn_key = re.sub(r"[^A-Za-z0-9_.:-]+", "-", turn_key)[:96]
-    artifact_id = f"conversation:{project_id}:{safe_turn_key}:manuscript"
-    body = {
-        "project_id": project_id,
-        "title": "对话生成的候选论文",
-        "sections": {
-            "title": "对话生成的候选论文",
-            "abstract": "候选稿待结合项目证据审阅。",
-            "body": answer_text,
-        },
-        "full_text": answer_text,
-        "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
-        "requires_human_review": True,
-        "provenance": {
-            "source": "conversation_llm_answer",
-            "conversation_id": answer.conversation_id,
-            "turn_id": answer.turn_id or request.client_turn_id,
-            "source_question": request.message[:4000],
-        },
-    }
-    if artifact_content_store.get(project_id, artifact_id) is not None:
-        return
-    saved_content = artifact_content_store.put(
-        ArtifactContent(
-            project_id=project_id,
-            artifact_id=artifact_id,
-            version=1,
-            artifact_type="ManuscriptDraftZh",
-            schema_version="conversational-research-output-v1",
-            body=body,
-        )
-    )
-    artifact_store.put(
-        ArtifactRef(
-            artifact_id=artifact_id,
-            project_id=project_id,
-            artifact_type="ManuscriptDraftZh",
-            version=saved_content.version,
-            content_uri=f"artifact-content://{project_id}/{artifact_id}/{saved_content.version}",
-            sha256=saved_content.content_hash or sha256_text(saved_content.model_dump_json()),
-            created_at=saved_content.created_at,
-            created_by="conversation_llm",
-            status="CANDIDATE",
-        )
-    )
-
-
 def _discussion_response(
     *,
     project_id: str,
@@ -5022,9 +5357,62 @@ def _discussion_response(
     """Answer one collaborative turn without mutating orchestration state."""
 
     bounded_response = _cgt_analysis_instruction_response(project_id, request.message)
-    guided_response = _cgt_guided_response(request.message, collaboration)
-    if bounded_response is not None or guided_response is not None:
-        response_message = bounded_response or guided_response or ""
+    guided_response = _cgt_guided_response(request.message, collaboration, project_context)
+    layered_topic_response = _layered_ai_topic_response(request.message, project_context)
+    layered_guided_response = (
+        layered_topic_response
+        or _layered_ai_guided_response(collaboration, project_context)
+    )
+    if bounded_response is not None or guided_response is not None or layered_guided_response is not None:
+        # Prefer the case-specific answer when the project is already
+        # identified. Generic bounded fallbacks can otherwise swallow a
+        # layered-scaffolding turn (for example, a p-value or Reviewer query)
+        # before its topic-specific next question is attached.
+        response_message = layered_topic_response or layered_guided_response or bounded_response or guided_response or ""
+        effective_collaboration = collaboration
+        layered_dialogue = None
+        if layered_guided_response or _layered_ai_project_context(project_context):
+            guided_key = collaboration.plan.guided_question_key if collaboration else None
+            graph_question = collaboration.plan.question_to_user if collaboration else None
+            explicit_topic_question = _layered_ai_topic_question(request.message) if layered_topic_response else None
+            # Replace only the known generic intake prompts. Explicit or
+            # researcher-authored questions remain untouched.
+            generic_intake = isinstance(graph_question, str) and any(
+                marker in graph_question for marker in ("我们先把目标说清楚", "接着收窄对象")
+            )
+            planned_question = explicit_topic_question or (
+                _LAYERED_AI_DIALOGUE_QUESTIONS.get(guided_key or "")
+                if generic_intake else graph_question
+            )
+            if (
+                collaboration is not None
+                and planned_question
+                and planned_question != graph_question
+                and hasattr(collaboration, "model_copy")
+                and hasattr(collaboration.plan, "model_copy")
+            ):
+                effective_plan = collaboration.plan.model_copy(
+                    update={"question_to_user": planned_question}
+                )
+                effective_collaboration = collaboration.model_copy(
+                    update={"plan": effective_plan}
+                )
+            # The domain-specific fallback is an answer plus a single, durable
+            # next question. Keep both in the same envelope so the chat and
+            # research canvas cannot drift after a free-form user reply.
+            layered_dialogue = DialogueTurn(
+                mode="clarify" if layered_guided_response else "research",
+                summary=response_message,
+                question=planned_question,
+                suggestions=[],
+                next_action=(
+                    "请先回答上面这一个研究问题，再决定是否进入下一步。"
+                    if planned_question else None
+                ),
+                canvas_focus="research_brief" if planned_question else "overview",
+                turn_role="ask_novel" if planned_question else "answer",
+                user_action_required=bool(planned_question),
+            ).model_dump(mode="json")
         return {
             "kind": "qa",
             "message": response_message,
@@ -5037,9 +5425,15 @@ def _discussion_response(
             "control_state": state.model_dump(mode="json"),
             "route_decision": state.route_decision.model_dump(mode="json") if state.route_decision else None,
             "gate": None,
-            "waiting_for_user": bool(guided_response),
+            "waiting_for_user": bool(guided_response or layered_guided_response),
             "checkpoint": None,
             "execution_started": False,
+            **({"dialogue": layered_dialogue} if layered_dialogue is not None else {}),
+            "collaboration": (
+                effective_collaboration.model_dump(mode="json")
+                if effective_collaboration is not None and hasattr(effective_collaboration, "model_dump")
+                else collaboration.model_dump(mode="json") if collaboration and hasattr(collaboration, "model_dump") else None
+            ),
         }
 
     # Document uploads are stored in the project document service first. Sync
@@ -5047,10 +5441,6 @@ def _discussion_response(
     # discussion turn can use the researcher's files instead of falling back
     # to an unrelated shared-corpus hit.
     local_source_ids = _sync_project_documents(project_id)
-    local_document_context = _project_document_prompt_context(
-        project_id,
-        request.message,
-    )
     dataset_summary = _project_dataset_summary(project_id)
     external_request = any(
         marker in request.message.strip().lower()
@@ -5070,12 +5460,7 @@ def _discussion_response(
     # boundary. Keep project identity at the front and newer guidance at the
     # end.
     dataset_context = f"\n当前已登记数据：{dataset_summary}" if dataset_summary else ""
-    combined_context = (
-        (project_context or "")
-        + ("\n" + local_document_context if local_document_context else "")
-        + dataset_context
-        + collaboration_context
-    )
+    combined_context = (project_context or "") + dataset_context + collaboration_context
     if len(combined_context) > 4000:
         head = (project_context or "")[:1200]
         tail = combined_context[-(4000 - len(head)):]
@@ -5120,87 +5505,13 @@ def _discussion_response(
         if external_request or planned_evidence_search or local_evidence_request
         else qa_service.converse(qa_request)
     )
-    direct_output_kind = _direct_conversation_output_request(request.message)
-    if direct_output_kind == "code" and not any(
-        marker in answer.answer
-        for marker in ("```", "import ", "def ", "pandas", "numpy")
-    ):
-        fallback_code = """```python
-from pathlib import Path
-
-import matplotlib.pyplot as plt
-import pandas as pd
-
-
-CSV_PATH = Path("your_data.csv")
-GROUP_COLUMN = "group"       # 待按实际表头确认
-VALUE_COLUMN = "measurement" # 待按实际表头确认
-
-
-def audit_and_summarize(path: Path) -> pd.DataFrame:
-    frame = pd.read_csv(path)
-    print("字段：", list(frame.columns))
-    print("缺失值：\\n", frame.isna().sum())
-    required = [GROUP_COLUMN, VALUE_COLUMN]
-    missing = [name for name in required if name not in frame.columns]
-    if missing:
-        raise KeyError(f"请先确认字段名：{missing}")
-    clean = frame.dropna(subset=required).copy()
-    summary = (
-        clean.groupby(GROUP_COLUMN, dropna=False)[VALUE_COLUMN]
-        .agg(["count", "mean", "std"])
-        .reset_index()
+    guarded_answer = _layered_ai_quality_guard(
+        request.message,
+        str(getattr(answer, "answer", "")),
+        project_context,
     )
-    summary["sem"] = summary["std"].fillna(0) / summary["count"].clip(lower=1).pow(0.5)
-    return summary
-
-
-summary = audit_and_summarize(CSV_PATH)
-ax = summary.plot.bar(
-    x=GROUP_COLUMN,
-    y="mean",
-    yerr="sem",
-    capsize=4,
-    legend=False,
-    title="各组均值及标准误",
-)
-ax.set_ylabel(VALUE_COLUMN)
-plt.tight_layout()
-plt.show()
-```"""
-        answer = answer.model_copy(update={
-            "answer": (
-                "已先生成一份可审阅的 Python 代码候选。当前 CSV 的分组字段和结果字段尚未确认，"
-                "代码会先输出字段与缺失值，再按确认后的字段计算各组均值和标准误并绘图；"
-                "尚未执行，也不会把示例字段当成真实数据。\n\n"
-                + fallback_code
-            ),
-            "route": QARouteDecision(
-                route="direct_answer",
-                reason="直接代码产出候选",
-                recommended_agent="analysis_code",
-            ),
-            "citations": [],
-            "answer_mode": "fallback",
-        })
-    elif direct_output_kind == "manuscript" and len(answer.answer.strip()) < 220:
-        answer = answer.model_copy(update={
-            "answer": (
-                "已生成候选论文草稿框架，具体样本、效应量和结论仍需绑定项目证据后审阅。\n\n"
-                "## 题目\n待根据研究问题确认\n\n"
-                "## 摘要\n本研究拟围绕当前项目的研究问题，基于已上传资料和后续审计结果形成可复核的研究结论。"
-                "当前不填入未经核验的样本量、效应量或因果表述。\n\n"
-                "## 研究方法\n研究对象、变量定义、数据处理和统计方法待结合项目资料确认。\n\n"
-                "## 结果与讨论\n待完成数据审查、证据核验和人工确认后写入。"
-            ),
-            "route": QARouteDecision(
-                route="direct_answer",
-                reason="直接论文产出候选",
-                recommended_agent="paper_writing",
-            ),
-            "citations": [],
-            "answer_mode": "fallback",
-        })
+    if guarded_answer != getattr(answer, "answer", ""):
+        answer = answer.model_copy(update={"answer": guarded_answer})
     domain_correction = getattr(answer, "domain_correction", None)
     if isinstance(domain_correction, dict):
         # Keep the correction in the project audit trail as well as the QA
@@ -5218,18 +5529,7 @@ plt.show()
     # The first post-upload turn is a receipt check, not a literature
     # question. Return facts from the actual CSV instead of the generic
     # fallback that says the assistant cannot see a table header.
-    explicit_code_request = any(
-        term in request.message.strip().lower()
-        for term in (
-            "生成代码", "分析代码", "python代码", "python 代码",
-            "代码候选", "写代码", "generate code", "python code",
-        )
-    )
-    if (
-        dataset_summary
-        and not explicit_code_request
-        and any(term in request.message.lower() for term in ("实际读取", "字段", "表头", "csv"))
-    ):
+    if dataset_summary and any(term in request.message.lower() for term in ("实际读取", "字段", "表头", "csv")):
         factual_answer = (
             f"{dataset_summary}\n\n"
             "目前只完成了文件接收和字段识别，没有执行正式统计或主题分析。"
@@ -5308,6 +5608,13 @@ plt.show()
         )
     turn_mode = collaboration.plan.current_mode.value if collaboration else "discussion"
     dialogue_summary, planned_question, dialogue_suggestions = _collaboration_dialogue(collaboration)
+    if collaboration is None and _layered_ai_project_context(project_context):
+        # A legacy/current-gate branch can reach discussion without a planner
+        # decision. Do not expose the generic cross-domain question in that
+        # case; it would disagree with the absent collaboration plan.
+        dialogue_summary = answer.answer
+        planned_question = None
+        dialogue_suggestions = []
     dialogue_branches = _collaboration_branches(collaboration)
     dialogue_version_change = _dialogue_version_change(collaboration)
     dialogue_evidence = [
@@ -5374,15 +5681,19 @@ plt.show()
                 f"{revision.reason}{consequence}"
             )
         response_message += "\n\n新证据改变了当前研究判断：\n" + "\n".join(changes)
-    try:
-        _persist_conversational_research_outputs(
-            project_id=project_id,
-            request=request,
-            answer=answer,
-            forced_output_kind=direct_output_kind,
-        )
-    except Exception:  # noqa: BLE001 - a workbench projection must not break chat
-        logger.exception("Could not persist conversational research outputs for %s", project_id)
+    layered_dialogue = (
+        DialogueTurn(
+            mode="research",
+            summary=response_message,
+            question=None,
+            suggestions=[],
+            next_action="如果要进入正式分析，请先确认研究设计和数据边界。",
+            canvas_focus="overview",
+            turn_role="answer",
+        ).model_dump(mode="json")
+        if _layered_ai_project_context(project_context)
+        else None
+    )
     return {
         "kind": "qa",
         "message": response_message,
@@ -5398,6 +5709,7 @@ plt.show()
         "waiting_for_user": True,
         "checkpoint": None,
         "execution_started": False,
+        **({"dialogue": layered_dialogue} if layered_dialogue is not None else {}),
         "collaboration": collaboration.model_dump(mode="json") if collaboration else None,
         "dialogue": DialogueTurn(
             mode=turn_mode,
@@ -5526,45 +5838,18 @@ def _project_conversation_command_impl(
     if request.project_id != project_id:
         raise ContextInputError("project_mismatch", "path project_id does not match request project_id")
     message = request.intent or request.message
+    layered_project_context = (
+        f"项目名称：{project.title}\n研究方向：{project.research_direction}"
+    )
+    # Keep ordinary case questions in the discussion lane even when their
+    # wording contains action-like terms such as p-values or review. The
+    # frontend explicitly sends discussion for these turns; this backend guard
+    # prevents a planner fallback from silently replacing the case answer.
+    layered_topic_turn = (
+        request.interaction_mode == "discussion"
+        and _layered_ai_topic_response(message, layered_project_context) is not None
+    )
     current_state = control_plane.ensure_project(project_id)
-    direct_output_kind = _direct_conversation_output_request(message)
-    if (
-        direct_output_kind is not None
-        and not _conversation_prefers_discussion(message)
-        and not any(
-            marker in message.strip().lower()
-            for marker in ("不要生成", "不生成", "先不生成", "暂不生成", "do not generate")
-        )
-    ):
-        direct_instruction = (
-            "请直接完成用户要求并输出可审阅候选，不要只提问或返回字段说明。"
-            if direct_output_kind == "code"
-            else "请直接生成候选论文正文，并明确标出待核验内容，不要只给写作建议。"
-        )
-        direct_response = _discussion_response(
-            project_id=project_id,
-            request=request,
-            state=current_state,
-            project_context=(
-                f"项目名称：{project.title}\n"
-                f"研究方向：{project.research_direction}\n"
-                f"本轮输出要求：{direct_instruction}\n"
-                "生成的候选必须保留在产出工作区，等待人工审阅；不要把候选冒充正式结果。"
-            ),
-            collaboration=None,
-        )
-        if direct_output_kind == "manuscript":
-            try:
-                answer_payload = direct_response.get("answer")
-                if isinstance(answer_payload, dict):
-                    _persist_forced_manuscript_candidate(
-                        project_id=project_id,
-                        request=request,
-                        answer=QAAnswerResponse.model_validate(answer_payload),
-                    )
-            except Exception:  # noqa: BLE001 - direct chat must remain available
-                logger.exception("Could not persist forced manuscript candidate for %s", project_id)
-        return direct_response
     # Projects created before the conversational flow was introduced may
     # still have a pending Gate for an internal operator (for example
     # ``research_design_approval``).  Migrate that durable state once while
@@ -5590,6 +5875,50 @@ def _project_conversation_command_impl(
             # not hide a state that cannot be migrated safely.
             pass
     normalized_message = message.strip().lower()
+    # Keep execution approvals and sensitivity-analysis requests attached to
+    # the layered case.  Otherwise a stale workflow stream can answer with a
+    # generic artifact status even though the case lacks frozen inputs.
+    if _layered_ai_project_context(layered_project_context):
+        if any(term in normalized_message for term in ("批准", "确定性分析", "执行计划", "软件版本", "随机种子")) and any(term in normalized_message for term in ("执行", "运行")):
+            bounded = ("当前判断：确定性分析还不能开始。依据是冻结数据、通过的 Code Reviewer 记录和可执行分析模块尚未齐备。"
+                       "执行前还需登记软件版本、随机种子、数据哈希、代码版本和失败恢复规则；本轮先形成执行资格检查清单，"
+                       "批准意图不会被当作已运行，也不会生成结果数字。")
+            return {
+                "kind": "qa", "message": bounded,
+                "answer": {"answer": bounded, "route": {"route": "direct_answer", "reason": "分层案例执行 Gate", "recommended_agent": None}, "citations": [], "answer_mode": "fallback"},
+                "control_state": current_state.model_dump(mode="json"),
+                "route_decision": current_state.route_decision.model_dump(mode="json") if current_state.route_decision else None,
+                "gate": None, "waiting_for_user": False, "checkpoint": None, "execution_started": False,
+            }
+        if "完整案例" in normalized_message and any(term in normalized_message for term in ("缺失敏感性", "delta-adjusted", "δ-adjusted")):
+            bounded = ("当前判断：完整案例和 δ-adjusted 缺失敏感性还未执行。现在可以先冻结缺失位置、实验组不利/有利方向、"
+                       "δ 值、输出字段和判断规则；完整数据、执行日志和模型输出齐备前，不报告调整差异、置信区间或 p 值，"
+                       "也不把模拟流程当作真实教学效果证据。下一步是补齐执行输入后再比较结论是否保持。")
+            return {
+                "kind": "qa", "message": bounded,
+                "answer": {"answer": bounded, "route": {"route": "direct_answer", "reason": "分层案例敏感性分析边界", "recommended_agent": None}, "citations": [], "answer_mode": "fallback"},
+                "control_state": current_state.model_dump(mode="json"),
+                "route_decision": current_state.route_decision.model_dump(mode="json") if current_state.route_decision else None,
+                "gate": None, "waiting_for_user": False, "checkpoint": None, "execution_started": False,
+            }
+    # Keep layered-scaffolding result requests in the evidence-bounded case
+    # lane even when an older workflow state has a pending internal action.
+    # This prevents the generic qualitative result-card branch from claiming
+    # that a card exists with empty sample-flow fields.
+    if _layered_ai_project_context(layered_project_context) and _conversation_requests_result_card(normalized_message):
+        bounded = _layered_ai_topic_response(message, layered_project_context)
+        if bounded:
+            return {
+                "kind": "qa",
+                "message": bounded,
+                "answer": {"answer": bounded, "route": {"route": "direct_answer", "reason": "分层案例证据边界", "recommended_agent": None}, "citations": [], "answer_mode": "fallback"},
+                "control_state": current_state.model_dump(mode="json"),
+                "route_decision": current_state.route_decision.model_dump(mode="json") if current_state.route_decision else None,
+                "gate": None,
+                "waiting_for_user": False,
+                "checkpoint": None,
+                "execution_started": False,
+            }
     early_checkpoint = _conversation_checkpoint(current_state.model_dump(mode="json"))
     # Manuscript section requests are bounded workflow commands, not ordinary
     # discussion.  Resolve them before collaboration planning or the generic
@@ -5675,25 +6004,6 @@ def _project_conversation_command_impl(
         requested_mode=request.interaction_mode,
         source_turn_id=request.client_turn_id,
     )
-    direct_output_kind = _direct_conversation_output_request(message)
-    if direct_output_kind is not None and request.interaction_mode in {"auto", "discussion"}:
-        direct_instruction = (
-            "请直接完成用户要求并输出可审阅候选，不要只提问或返回字段说明。"
-            if direct_output_kind == "code"
-            else "请直接生成候选论文正文，并明确标出待核验内容，不要只给写作建议。"
-        )
-        return _discussion_response(
-            project_id=project_id,
-            request=request,
-            state=current_state,
-            project_context=(
-                f"项目名称：{project.title}\n"
-                f"研究方向：{project.research_direction}\n"
-                f"本轮输出要求：{direct_instruction}\n"
-                "生成的候选必须保留在产出工作区，等待人工审阅；不要把候选冒充正式结果。"
-            ),
-            collaboration=collaboration,
-        )
     # Treat explicit design confirmations as continuation signals.  Without
     # this guard, a short confirmation could fall into the generic QA path
     # and return the stale “local evidence not found” answer instead of
@@ -5850,10 +6160,13 @@ def _project_conversation_command_impl(
     # classifier here so explicit actions advance the workflow, while normal
     # questions and deliberation remain in QA/discussion.
     if (
-        request.interaction_mode in {"discussion", "auto"}
+        request.interaction_mode == "discussion"
+        and resolved_interaction_mode == "discussion"
         and _auto_requests_workflow(message, current_state)
     ):
         resolved_interaction_mode = "workflow"
+    if layered_topic_turn and not current_state.active_gate_id:
+        resolved_interaction_mode = "discussion"
     # Result-card requests are durable research actions.  They must be
     # handled by the orchestration state (or its explicit checkpoint message)
     # instead of the literature QA fallback, even when the client uses the
@@ -5862,6 +6175,7 @@ def _project_conversation_command_impl(
         resolved_interaction_mode == "discussion"
         and _conversation_requests_result_card(normalized_message)
         and not _conversation_requests_explanation(normalized_message)
+        and not layered_topic_turn
     ):
         resolved_interaction_mode = "workflow"
     # Once the qualitative stream has reached writing, a request to recreate
@@ -6231,16 +6545,22 @@ def _project_conversation_command_impl(
                     payload={"checkpoint": checkpoint, "response": feedback[:2000]},
                 )
             )
-            return {
-                "kind": "orchestration",
-                "message": _checkpoint_message(MANUSCRIPT_SECTION_CHECKPOINT),
-                "control_state": current_state.model_dump(mode="json"),
-                "route_decision": current_state.route_decision.model_dump(mode="json") if current_state.route_decision else None,
-                "gate": None,
-                "waiting_for_user": True,
-                "checkpoint": MANUSCRIPT_SECTION_CHECKPOINT,
-                "execution_started": False,
-            }
+            if _manuscript_section_request(message) is None:
+                return {
+                    "kind": "orchestration",
+                    "message": _checkpoint_message(MANUSCRIPT_SECTION_CHECKPOINT),
+                    "control_state": current_state.model_dump(mode="json"),
+                    "route_decision": current_state.route_decision.model_dump(mode="json") if current_state.route_decision else None,
+                    "gate": None,
+                    "waiting_for_user": True,
+                    "checkpoint": MANUSCRIPT_SECTION_CHECKPOINT,
+                    "execution_started": False,
+                }
+            # A concrete chapter request also confirms the outline. Continue
+            # in this same turn so the user sees the requested chapter rather
+            # than spending one of the fixed demonstration turns on a prompt.
+            checkpoint = MANUSCRIPT_SECTION_CHECKPOINT
+            stream = updated_stream
 
         # Each chapter request is a real writing action backed by immutable
         # artifacts. Non-final chapters return to the same checkpoint; the
@@ -6306,18 +6626,17 @@ def _project_conversation_command_impl(
                 "discussion": "讨论与局限",
             }
             section_title = section_titles.get(section, section)
-            section_message = (
-                f"已生成“{section_title}”章节候选，并将其保存为可追溯产物；"
-                "本节只使用当前冻结资料、执行记录和可核验来源。"
+            saved_section = _latest_artifact_body(project_id, "ManuscriptSectionCandidate") or {}
+            section_message = _manuscript_section_chat_message(
+                project_id,
+                section,
+                section_title,
+                str(saved_section.get("body") or ""),
             )
-            if next_checkpoint == MANUSCRIPT_SECTION_CHECKPOINT:
-                section_message += _checkpoint_message(next_checkpoint)
             return {
                 "kind": "orchestration",
                 "message": section_message if next_checkpoint == MANUSCRIPT_SECTION_CHECKPOINT else (
-                    section_message if not next_gate else _guided_transition_message(
-                        state=latest_state, gate=next_gate, checkpoint=None, decision=None
-                    )
+                    section_message if not next_gate else _gate_message_for_project(project_id, next_gate)
                 ),
                 "control_state": latest_state,
                 "route_decision": current_state.route_decision.model_dump(mode="json") if current_state.route_decision else None,
@@ -6457,6 +6776,53 @@ def _project_conversation_command_impl(
                     ):
                         break
                     continued = continue_project_orchestration(project_id, user, conversational=True)
+        # The execution instruction in the guide both accepts the reviewed
+        # preprocessing module and explicitly approves its bounded run. Carry
+        # that consent across the newly-created execution Gate in the same
+        # turn; otherwise the fixed dialogue falls back to QA while the Gate
+        # remains hidden behind the prior conversational checkpoint.
+        execute_preprocessing = (
+            checkpoint == "CODE_REVIEW_REVIEW"
+            and any(term in normalized_message for term in (
+                "批准只执行审计和预处理",
+                "批准只执行数据审计和预处理",
+            ))
+        )
+        if execute_preprocessing:
+            pending_execution_gate = (
+                control_plane.repository.get_gate(
+                    project_id,
+                    (continued.get("control_state") or {}).get("active_gate_id"),
+                )
+                if isinstance(continued.get("control_state"), dict)
+                and (continued.get("control_state") or {}).get("active_gate_id")
+                else None
+            )
+            if (
+                pending_execution_gate is not None
+                and pending_execution_gate.gate_type == "manual_execution_approval_approval"
+            ):
+                control_plane.decide_gate(
+                    project_id,
+                    pending_execution_gate.gate_id,
+                    decision="approve",
+                    actor=user.username,
+                    role="researcher",
+                    risk_acceptance=(
+                        ["研究者已明确批准仅执行数据审计与预处理"]
+                        if pending_execution_gate.warnings else []
+                    ),
+                    reason="研究者已批准仅执行数据审计与预处理，不下载模型或运行聚类",
+                )
+                continued = continue_project_orchestration(project_id, user, conversational=True)
+                for _ in range(32):
+                    if (
+                        continued.get("gate") is not None
+                        or not continued.get("execution_started")
+                        or _conversation_checkpoint(continued.get("control_state"))
+                    ):
+                        break
+                    continued = continue_project_orchestration(project_id, user, conversational=True)
         latest_state = continued.get("control_state", current_state.model_dump(mode="json"))
         next_gate = continued.get("gate")
         next_checkpoint = _conversation_checkpoint(latest_state)
@@ -6470,11 +6836,10 @@ def _project_conversation_command_impl(
                 if completed_turn_message and next_gate
                 else _checkpoint_message_for_project(project_id, next_checkpoint)
                 if next_checkpoint
+                else _gate_message_for_project(project_id, next_gate)
+                if next_gate
                 else _guided_transition_message(
-                    state=latest_state,
-                    gate=next_gate,
-                    checkpoint=None,
-                    decision=None,
+                    state=latest_state, gate=None, checkpoint=None, decision=None
                 )
             ),
             "control_state": latest_state,
@@ -6496,6 +6861,26 @@ def _project_conversation_command_impl(
         and not any(term in normalized_message for term in conversation_decision_terms)
     ):
         answer = qa_service.answer(QAAnswerRequest(project_id=project_id, question=request.message, allow_llm=True))
+        guarded_answer = _layered_ai_quality_guard(
+            request.message,
+            answer.answer,
+            f"项目名称：{project.title}\n研究方向：{project.research_direction}",
+        )
+        if guarded_answer != answer.answer:
+            answer = answer.model_copy(update={"answer": guarded_answer})
+        generic_dialogue = None
+        if _layered_ai_project_context(
+            f"项目名称：{project.title}\n研究方向：{project.research_direction}"
+        ):
+            generic_dialogue = DialogueTurn(
+                mode="research",
+                summary=answer.answer,
+                question=None,
+                suggestions=[],
+                next_action="继续补充研究判断，或明确提出要审查的设计边界。",
+                canvas_focus="overview",
+                turn_role="answer",
+            ).model_dump(mode="json")
         return {
             "kind": "qa",
             "message": answer.answer,
@@ -6504,6 +6889,12 @@ def _project_conversation_command_impl(
             "route_decision": None,
             "gate": None,
             "execution_started": False,
+            "waiting_for_user": bool(
+                _layered_ai_project_context(
+                    f"项目名称：{project.title}\n研究方向：{project.research_direction}"
+                )
+            ),
+            **({"dialogue": generic_dialogue} if generic_dialogue is not None else {}),
         }
     current_stream = next(
         (item for item in current_state.workstreams if item.workstream_id == current_state.active_workstream_id),
@@ -6623,6 +7014,14 @@ def _project_conversation_command_impl(
                 else "viewer"
             )
             try:
+                refreshed_freeze: dict[str, object] | None = None
+                if (
+                    requested_decision == "approve"
+                    and current_gate.gate_type == "dataset_freeze_hash_approval"
+                ):
+                    refreshed_freeze = _refresh_dataset_freeze_candidate_for_gate(
+                        project_id, current_gate
+                    )
                 decided = control_plane.decide_gate(
                     project_id,
                     current_gate.gate_id,
@@ -6638,25 +7037,27 @@ def _project_conversation_command_impl(
                 # researcher has just made a successful decision and must not
                 # receive a misleading 409 response.
                 if decided.lifecycle_status.value != "ACTIVE":
-                    unperformed = _unperformed_candidate_actions(project_id)
-                    if unperformed:
-                        completion_message = (
-                            "盲测候选稿已冻结，论文正文、结果卡、引用核验和审查记录已经保留在右侧研究产出中。"
-                            f"但以下分析仍未实际执行：{'、'.join(unperformed)}。"
-                            "因此当前稿件只能作为候选分析包，不能把这些分析写成已完成结果；"
-                            "你可以先打开论文正文核对结论，再查看未执行项和审查摘要。"
-                        )
-                    else:
-                        completion_message = (
-                            "独立审查已确认，研究流程已完成。论文正文、统计结果、引用核验和审查记录已经保留在右侧研究产出中；"
-                            "你可以先打开论文正文核对结论，再查看统计结果与审查摘要。"
-                        )
+                    delivery = _freeze_candidate_delivery(project_id)
+                    delivered_names = "、".join(
+                        str(item.get("name"))
+                        for item in delivery.get("files", [])
+                        if isinstance(item, dict)
+                    )
+                    missing_names = "、".join(str(item) for item in delivery.get("missing_outputs", [])) or "无"
+                    completion_message = (
+                        "候选稿已冻结并实际写入交付目录。\n"
+                        f"- 稿件等级：{delivery.get('package_grade')}\n"
+                        f"- 已交付：{delivered_names}\n"
+                        f"- 缺失产物：{missing_names}\n"
+                        f"- 论文 SHA-256：{delivery.get('manuscript_sha256')}\n"
+                        f"- 冻结时间：{delivery.get('frozen_at')}\n"
+                        f"- 交付清单：{delivery.get('manifest_path')}\n"
+                        f"- 优先打开：{delivery.get('delivery_directory')}\\manuscript.md\n"
+                        "冻结版本不会因随后读取原论文而改变。"
+                    )
                     return {
                         "kind": "orchestration",
-                        "message": completion_message + (
-                            "若准备投稿，可点击右下角“用当前论文投稿格式化”生成 LaTeX，"
-                            "但正式投稿前仍需按目标期刊要求做最后人工校对。"
-                        ),
+                        "message": completion_message,
                         "control_state": decided.model_dump(mode="json"),
                         "route_decision": decided.route_decision.model_dump(mode="json") if decided.route_decision else None,
                         "gate": None,
@@ -6757,31 +7158,53 @@ def _project_conversation_command_impl(
                                 continued = continue_project_orchestration(project_id, user, conversational=True)
                     latest_state = continued.get("control_state", decided.model_dump(mode="json"))
                     next_gate = continued.get("gate")
+                    transition_message = (
+                        _checkpoint_message_for_project(
+                            project_id, _conversation_checkpoint(latest_state)
+                        )
+                        if _conversation_checkpoint(latest_state)
+                        else _gate_message_for_project(project_id, next_gate)
+                        if next_gate
+                        else _guided_transition_message(
+                            state=latest_state,
+                            gate=None,
+                            checkpoint=None,
+                            decision=requested_decision,
+                        )
+                        if requested_decision == "approve"
+                        else (
+                            "本轮检索完成：新增 "
+                            f"{_latest_evidence_coverage(project_id).get('new_source_count', 0)} 篇，"
+                            "重复/已存在 "
+                            f"{_latest_evidence_coverage(project_id).get('duplicate_source_count', 0)} 篇；"
+                            "当前共 "
+                            f"{_latest_evidence_coverage(project_id).get('source_count', 0)} 个来源、"
+                            f"{_latest_evidence_coverage(project_id).get('evidence_count', 0)} 条证据片段。"
+                            "请查看右侧结果后继续对话。"
+                        )
+                    )
+                    if refreshed_freeze is not None:
+                        flow = refreshed_freeze.get("sample_flow")
+                        sample_flow = flow if isinstance(flow, dict) else {}
+                        groups = refreshed_freeze.get("group_counts")
+                        group_counts = groups if isinstance(groups, dict) else {}
+                        transition_message = (
+                            "数据版本已按当前两张表重新核对并冻结："
+                            f"原始文本 {sample_flow.get('raw_text_rows', '未记录')} 条，空文本 "
+                            f"{sample_flow.get('missing_text_rows', '未记录')} 条，非空文本 "
+                            f"{sample_flow.get('nonempty_text_rows', '未记录')} 条；按原始 Stu_ID 连接后保留 "
+                            f"{sample_flow.get('joined_students', '未记录')} 名学生，文本侧 "
+                            f"{sample_flow.get('text_students_without_background', '未记录')} 名未连接。"
+                            f"奥赛组 {group_counts.get('0', '未记录')} 名、非参与组 {group_counts.get('1', '未记录')} 名。"
+                            f"原始文本 SHA-256：{refreshed_freeze.get('sha256')}；417 人清单哈希："
+                            f"{refreshed_freeze.get('selected_student_manifest_sha256')}。"
+                            "字段字典、纳入/排除编号和数据边界已写入冻结产物。"
+                            "我的判断是：417 人可作为当前主分析样本，但分组非随机且采集形式可能不同，"
+                            "后续只能作描述性或关联性解释。\n下一步：" + transition_message
+                        )
                     return {
                         "kind": "orchestration",
-                        "message": (
-                            _checkpoint_message_for_project(
-                                project_id, _conversation_checkpoint(latest_state)
-                            )
-                            if _conversation_checkpoint(latest_state)
-                            else _guided_transition_message(
-                                state=latest_state,
-                                gate=next_gate,
-                                checkpoint=None,
-                                decision=requested_decision,
-                            )
-                            if requested_decision == "approve"
-                            else (
-                                "本轮检索完成：新增 "
-                                f"{_latest_evidence_coverage(project_id).get('new_source_count', 0)} 篇，"
-                                "重复/已存在 "
-                                f"{_latest_evidence_coverage(project_id).get('duplicate_source_count', 0)} 篇；"
-                                "当前共 "
-                                f"{_latest_evidence_coverage(project_id).get('source_count', 0)} 个来源、"
-                                f"{_latest_evidence_coverage(project_id).get('evidence_count', 0)} 条证据片段。"
-                                "请查看右侧结果后继续对话。"
-                            )
-                        ),
+                        "message": transition_message,
                         "control_state": latest_state,
                         "route_decision": decided.route_decision.model_dump(mode="json") if decided.route_decision else None,
                         "gate": next_gate,
@@ -7026,19 +7449,6 @@ def project_conversation_command(
         journal.update(project_id, turn["turn_id"], status="processing")
         response = _project_conversation_command_impl(project_id, request, user)
         if isinstance(response, dict):
-            # Some older workflow branches can still return a QA answer
-            # directly. Apply the same workbench bridge at the endpoint
-            # boundary so every conversational response is covered.
-            answer_payload = response.get("answer")
-            if isinstance(answer_payload, dict):
-                try:
-                    _persist_conversational_research_outputs(
-                        project_id=project_id,
-                        request=request,
-                        answer=QAAnswerResponse.model_validate(answer_payload),
-                    )
-                except Exception:  # noqa: BLE001 - projection must not break the response
-                    logger.exception("Could not bridge conversational answer for %s", project_id)
             journal.update(project_id, turn["turn_id"], status="completed", response=response)
         else:
             journal.update(project_id, turn["turn_id"], status="failed")
@@ -7468,192 +7878,6 @@ def _build_evidence_review_package(
         "used_evidence_refs": evidence_ids,
         "source_artifact_ids": artifact_ids,
     }
-
-
-def _legacy_project_evidence_context(project_id: str, research_scope: str) -> ContextBundle:
-    """Build a non-authorizing context from evidence stored by older projects.
-
-    Older authenticated projects may have searchable evidence in ``context.db``
-    without ever creating orchestration artifacts.  This helper deliberately
-    reads those records into a temporary review context; it does not verify,
-    promote, or persist a workflow artifact.
-    """
-
-    allowed_statuses = list(VerificationStatus)
-    request = EvidenceSearchRequest(
-        project_id=project_id,
-        query=research_scope or "当前研究主题",
-        limit=50,
-        allowed_verification_statuses=allowed_statuses,
-    )
-    results = service.search(request)
-    if not results:
-        # A vocabulary mismatch should not hide already imported evidence.
-        results = service._discovery_candidates(  # noqa: SLF001 - compatibility projection
-            ContextBuildRequest(
-                project_id=project_id,
-                task_ref=f"legacy:{project_id}:evidence-review",
-                query=research_scope or "当前研究主题",
-                token_budget=8_000,
-                max_chunks_per_source=3,
-                allow_discovery_fallback=True,
-                allowed_verification_statuses=allowed_statuses,
-            )
-        )
-    selected: list[EvidenceRef] = []
-    source_counts: dict[str, int] = {}
-    used_tokens = 0
-    for result in results:
-        evidence = result.evidence
-        if source_counts.get(evidence.source_id, 0) >= 3:
-            continue
-        cost = max(1, len(evidence.excerpt) // 4)
-        if used_tokens + cost > 8_000:
-            continue
-        selected.append(evidence)
-        source_counts[evidence.source_id] = source_counts.get(evidence.source_id, 0) + 1
-        used_tokens += cost
-    summary = {
-        status.value: sum(item.verification_status == status for item in selected)
-        for status in VerificationStatus
-    }
-    canonical = json.dumps(
-        {
-            "project_id": project_id,
-            "task_ref": f"legacy:{project_id}:evidence-review",
-            "query": research_scope,
-            "evidence": [item.evidence_id for item in selected],
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return ContextBundle(
-        context_id=f"ctx_legacy_{project_id}",
-        project_id=project_id,
-        task_ref=f"legacy:{project_id}:evidence-review",
-        query=research_scope or "当前研究主题",
-        evidence_refs=selected,
-        source_refs=sorted(source_counts),
-        unresolved_questions=[] if selected else ["当前项目没有可读取的候选证据"],
-        risk_flags=["legacy_read_only_projection"],
-        verification_summary=summary,
-        token_budget=8_000,
-        estimated_tokens=used_tokens,
-        context_hash=sha256_text(canonical),
-        generated_at=datetime.now(UTC).isoformat(),
-        context_mode="local",
-        retrieval_strategy="legacy_project_evidence",
-    )
-
-
-def _legacy_qa_turns(project_id: str) -> list[dict[str, object]]:
-    """Read ordinary QA turns for a read-only projection of legacy work."""
-
-    try:
-        conversations = qa_service.list_conversations(project_id, limit=50)
-        turns: list[dict[str, object]] = []
-        for conversation in conversations:
-            for turn in qa_service.conversation_turns(
-                project_id,
-                conversation.conversation_id,
-                limit=100,
-            ):
-                turns.append(turn.model_dump(mode="json"))
-        return sorted(turns, key=lambda item: str(item.get("created_at") or ""))
-    except Exception as error:  # noqa: BLE001 - legacy display must be best effort
-        logger.warning("Could not read legacy QA turns for %s: %s", project_id, error)
-        return []
-
-
-def _legacy_workflow_artifacts(project_id: str) -> list[ArtifactContent]:
-    """Expose legacy conversation conclusions as explicitly provisional cards."""
-
-    existing_types = {
-        item.artifact_type for item in artifact_content_store.list_project(project_id)
-    }
-    turns = _legacy_qa_turns(project_id)
-    if not turns:
-        return []
-    relevant = [
-        item for item in turns
-        if any(
-            term in str(item.get("question") or "").lower()
-            for term in (
-                "研究问题", "研究方案", "研究设计", "研究对象", "研究方法",
-                "研究边界", "研究场景", "确定研究", "方案",
-            )
-        )
-    ]
-    if not relevant:
-        return []
-    excerpts = [
-        {
-            "question": str(item.get("question") or "").strip(),
-            "answer": str(item.get("answer") or "").strip()[:1200],
-            "created_at": item.get("created_at"),
-        }
-        for item in relevant[-6:]
-    ]
-    projected: list[ArtifactContent] = []
-    if "ResearchQuestionTree" not in existing_types:
-        question_body = {
-            "project_id": project_id,
-            "title": "历史对话中的研究问题候选",
-            "primary_question": "请根据历史对话确认研究对象、场景、方法、发现与边界，形成正式研究问题。",
-            "research_questions": [
-                "研究对象与场景是什么？",
-                "拟采用什么研究方法？",
-                "哪些发现或判断需要证据支持？",
-                "结论边界应如何限定？",
-            ],
-            "status": "LEGACY_CANDIDATE_REQUIRES_CONFIRMATION",
-            "provenance": {
-                "source": "ordinary_qa_history",
-                "read_only": True,
-                "note": "这是旧项目的历史候选，不等同于已批准的研究问题。",
-            },
-            "conversation_excerpts": excerpts,
-        }
-        projected.append(
-            ArtifactContent(
-                project_id=project_id,
-                artifact_id=f"legacy-projection:{project_id}:research-question",
-                version=1,
-                artifact_type="ResearchQuestionTree",
-                schema_version="legacy-projection-v1",
-                body=question_body,
-            )
-        )
-    if "StudyProtocolCandidate" not in existing_types:
-        protocol_body = {
-            "project_id": project_id,
-            "title": "历史对话中的研究方案候选",
-            "design_type": "待从历史对话确认",
-            "primary_outcome": "待研究者确认",
-            "sampling_approach": "待研究者确认研究对象与纳入边界",
-            "variables": ["研究对象", "研究场景", "研究方法", "研究发现", "解释边界"],
-            "analysis_plan": "历史对话仅作为候选输入，需确认后再形成可执行分析计划。",
-            "hypotheses": [],
-            "status": "LEGACY_CANDIDATE_REQUIRES_CONFIRMATION",
-            "provenance": {
-                "source": "ordinary_qa_history",
-                "read_only": True,
-                "note": "这是旧项目的历史候选，不等同于已批准的研究方案。",
-            },
-            "conversation_excerpts": excerpts,
-        }
-        projected.append(
-            ArtifactContent(
-                project_id=project_id,
-                artifact_id=f"legacy-projection:{project_id}:study-protocol",
-                version=1,
-                artifact_type="StudyProtocolCandidate",
-                schema_version="legacy-projection-v1",
-                body=protocol_body,
-            )
-        )
-    return projected
 
 
 def _research_brief_fields(
@@ -8153,6 +8377,7 @@ def _deterministic_qualitative_results_manuscript(
         raw_basis = str(theme.get("candidate_basis") or theme.get("coding_basis") or "transparent_keyword_assisted_candidate")
         basis = {
             "researcher_provisional_interpretation_with_keyword_retrieval": "研究者暂定解释与透明关键词检索",
+            "system_generated_transparent_keyword_retrieval": "系统生成的透明关键词辅助候选",
             "deterministic_keyword_assisted_candidate": "透明关键词辅助候选",
             "executed_pattern_discovery": "已执行模式发现",
         }.get(raw_basis, raw_basis)
@@ -8187,6 +8412,28 @@ def _deterministic_qualitative_results_manuscript(
     if not themes:
         results_lines.append("当前资料未与预设辅助编码词表形成可靠主题候选；需要研究者开展开放编码，不能产出实证主题结论。")
     sections = dict(draft["sections"])
+    # Apply the workspace journal-writing skill even when no LLM provider is
+    # available.  The prose remains evidence-governed, while the manuscript
+    # records which section contract and precedence layers were used.
+    try:
+        writing_constraints = JournalProfileLoader().load_writing_patterns()
+        skill_trace: dict[str, object] = {
+            "skill": "journal-writing",
+            "article_type": "research_article",
+            "methodology": "qualitative computational reanalysis",
+            "section_contracts": sorted(writing_constraints.writing_patterns),
+            "precedence": ["official_journal_rules", "journal_pattern", "methodology_pattern", "general_pattern"],
+            "llm_generation": False,
+        }
+    except (OSError, ValueError, JournalConfigError):
+        skill_trace = {
+            "skill": "journal-writing",
+            "article_type": "research_article",
+            "methodology": "qualitative computational reanalysis",
+            "section_contracts": ["abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"],
+            "llm_generation": False,
+            "warning": "workspace skill could not be loaded; deterministic evidence contract retained",
+        }
     sections.update(
         {
             "abstract": (
@@ -8216,9 +8463,10 @@ def _deterministic_qualitative_results_manuscript(
                 )
             ),
             "introduction": (
-                "物理问题解决文字描述可以同时呈现问题理想化、物理概念调用、定量处理和求解策略。"
-                "本研究基于公开学生物理问题解决文本，复核这些语义成分如何在同一段描述中共同出现。"
-                "研究问题针对学生文本本身，不把学生当作访谈对象，也不把公开数据项目的原始研究结论改写为本研究发现。"
+                "物理问题解决并不只体现在最后答案，也体现在学习者如何界定情境、调用规律、组织计算并解释所得结果。"
+                "学生的开放式解题文字因此提供了观察这些过程的补充窗口，但文字材料同时带来语境不完整、语言表达差异和编码边界不稳定等问题。"
+                "本研究将公开二手文本作为计算辅助定性再分析的对象，关注文本中可回链的语义成分，而不把文本标签直接等同于稳定的认知类型。"
+                "研究问题是：哪些语义候选能够从文本中被透明地定位？它们如何共同呈现问题解决过程？哪些候选仍需要独立编码和后续模型确认？"
             ),
             "evidence_review": (
                 "文献与数据说明用于界定研究问题、资料来源和复现边界。当前候选稿只使用已登记的公开资料来源和方法背景，"
@@ -8229,6 +8477,15 @@ def _deterministic_qualitative_results_manuscript(
                 "RQ1：公开学生物理问题解决文本中可以识别出哪些可回链的语义主题？\n"
                 "RQ2：这些主题如何覆盖问题假设、物理概念、定量处理和解题方案表达等环节？\n"
                 "RQ3：哪些主题候选仍需要人工定义、反例检查或后续监督模型确认？"
+            ),
+            "conclusion": (
+                "本研究形成了一个可复核的公开学生物理问题解决文本分析起点。冻结数据和预处理结果支持对样本边界、"
+                "句子编码单位以及关键词辅助候选进行透明报告；它们尚不足以支持稳定主题频率、组间差异或外部推广。"
+                "下一阶段应优先完成候选定义、反例检查、独立编码一致性和按学生分组的稳健性分析，再决定哪些线索能够升级为实证主题。"
+            ),
+            "data_availability": (
+                "本候选包保存冻结数据版本的文件指纹、样本连接记录、预处理执行日志、候选证据、主张—证据关系和写作审查记录。"
+                "原始公开资料未被改写；投稿或公开前应依据其原始许可和伦理条件确认数据共享范围。"
             ),
             "analysis_plan": (
                 "分析单位为预处理后保留语境的句子，学生是聚合单位。流程为：冻结数据版本；检查记录和样本边界；"
@@ -8241,7 +8498,8 @@ def _deterministic_qualitative_results_manuscript(
                 "并明确哪些发现已经来自冻结资料、哪些仍属于待执行或待复核的分析。"
             ),
             "references": (
-                "Computational Grounded Theory in Physics Education Research. OSF. https://osf.io/d68ch/"
+                "Computational Grounded Theory in Physics Education Research. OSF. https://osf.io/d68ch/\n"
+                "注：当前仅列出项目中已登记且可核验的资料来源；理论背景和方法文献应在投稿前补充作者、年份、期刊、页码或 DOI，不能由系统推测。"
             ),
             "results": "\n\n".join(results_lines),
             "discussion": (
@@ -8293,6 +8551,7 @@ def _deterministic_qualitative_results_manuscript(
             "result_theme_count": len(themes),
             "primary_data_artifact_id": primary_data["artifact_id"],
             "sample_flow": sample_flow,
+            "writing_skill_trace": skill_trace,
         }
     )
     return draft
@@ -8460,44 +8719,13 @@ def project_evidence_review_package(
 ) -> dict[str, object]:
     """Return the latest human-readable evidence package for the project."""
 
-    project = identity_service.get_project(user, project_id)
+    identity_service.get_project(user, project_id)
     packages = [
         item for item in artifact_content_store.list_project(project_id)
         if item.artifact_type == "EvidenceReviewPackage"
     ]
     if not packages:
-        # Older authenticated projects may have searchable evidence and QA
-        # turns but no orchestration artifact because their commands were
-        # routed through the ordinary chat path.  Present that material as a
-        # read-only candidate package so the workbench can recover it without
-        # pretending that it passed human verification.
-        has_legacy_material = bool(service.list_sources(project_id)) or bool(_legacy_qa_turns(project_id))
-        if not has_legacy_material:
-            raise HTTPException(status_code=404, detail="evidence review package was not found")
-        context_bundle = _legacy_project_evidence_context(
-            project_id,
-            _canonical_research_scope(project.research_direction),
-        )
-        body = _build_evidence_review_package(
-            project_id,
-            _canonical_research_scope(project.research_direction),
-            [],
-            context_bundle=context_bundle,
-        )
-        body["legacy_projection"] = True
-        body["legacy_projection_note"] = (
-            "这是旧项目的只读候选包。候选证据仍需人工核对原文定位后，"
-            "才能进入正式证据库。"
-        )
-        content = ArtifactContent(
-            project_id=project_id,
-            artifact_id=f"legacy-projection:{project_id}:evidence-review",
-            version=1,
-            artifact_type="EvidenceReviewPackage",
-            schema_version="legacy-projection-v1",
-            body=body,
-        )
-        return content.model_dump(mode="json")
+        raise HTTPException(status_code=404, detail="evidence review package was not found")
     # Artifact ids are random and their lexical order is unrelated to time.
     # Always return the newest immutable package revision. Older packages
     # were written before retrieval trace de-duplication was added, so clean
@@ -9472,30 +9700,7 @@ def continue_project_orchestration(
                 evidence_ids = []
             elif route == "QUALITATIVE" and action == "dataset_freeze_hash":
                 primary_data = _registered_qualitative_primary_data(project_id)
-                sample_flow = _qualitative_sample_flow(project_id, primary_data) if primary_data else None
-                selected_data = _qualitative_analysis_primary_data(project_id, primary_data) if primary_data else None
-                selected_ids = list(selected_data.get("participant_labels", [])) if selected_data else []
-                if sample_flow is not None:
-                    sample_flow = {
-                        **sample_flow,
-                        "final_analysis_sample": len(selected_ids),
-                    }
-                candidate = {
-                    "project_id": project_id,
-                    "action": action,
-                    "route": route,
-                    "status": "FROZEN_VERSION_CANDIDATE" if primary_data else "NOT_FROZEN_NO_PRIMARY_DATA",
-                    "frozen_dataset_ref": primary_data.get("source_dataset_ref") if primary_data else None,
-                    "sha256": primary_data.get("content_sha256") if primary_data else None,
-                    "immutable_document_version": primary_data.get("document_version") if primary_data else None,
-                    "analysis_selection": "nonempty Text inner-joined to background variables by original Stu_ID",
-                    "selected_student_count": len(selected_ids),
-                    "selected_student_manifest_sha256": (
-                        sha256_text("\n".join(selected_ids)) if selected_ids else None
-                    ),
-                    "sample_flow": sample_flow,
-                    "blocking_reason": None if primary_data else "只有完成原始资料导入、审计和处理审批后才能生成冻结哈希。",
-                }
+                candidate = _dataset_freeze_candidate(project_id)
                 if primary_data is None:
                     validation_status = ValidationStatus.FAILED
                 else:
@@ -9787,9 +9992,11 @@ def continue_project_orchestration(
                         for index, item in enumerate(patterns)
                     ]
                 else:
-                    # The researcher may still propose theoretical working
-                    # labels when computational pattern discovery is blocked.
-                    # Keep them useful but unmistakably separate from clusters.
+                    # When computational pattern discovery is blocked, derive
+                    # an auditable first-pass codebook directly from the
+                    # frozen corpus. The researcher does not have to supply
+                    # target labels; these remain system-generated candidates,
+                    # unmistakably separate from cluster results.
                     coding_input = _qualitative_coding_input(project_id, primary_data or {})
                     assisted = [
                         item for item in _deterministic_theme_candidates(coding_input)
@@ -9802,7 +10009,7 @@ def continue_project_orchestration(
                         {
                             "theme_id": str(item.get("theme_id")),
                             "source_cluster": None,
-                            "candidate_basis": "researcher_provisional_interpretation_with_keyword_retrieval",
+                            "candidate_basis": "system_generated_transparent_keyword_retrieval",
                             "working_name": str(item.get("label")),
                             "definition": str(item.get("operational_definition")),
                             "inclusion_rules": [str(item.get("inclusion_rule"))],
@@ -9822,11 +10029,15 @@ def continue_project_orchestration(
                     "route": route,
                     "status": "CODEBOOK_CANDIDATE_REQUIRES_REVIEW",
                     "source_pattern_packet": pattern_packet,
-                    "researcher_pattern_feedback": feedback[:2000],
+                    "candidate_generation_instruction": feedback[:2000],
                     "codebook": codebook,
-                    "agreement_plan": {"second_coder": True, "statistics": ["cohen_kappa", "krippendorff_alpha"]},
+                    "agreement_plan": {
+                        "isolated_reviewer": True,
+                        "performed": False,
+                        "statistics": ["cohen_kappa", "krippendorff_alpha"],
+                    },
                     "boundary": (
-                        "模式发现未执行；本 Codebook 仅由研究者暂定解释和透明关键词检索形成，不得称为聚类发现。"
+                        "模式发现未执行；本 Codebook 由系统基于冻结语料和透明关键词规则生成，不得称为聚类发现或正式主题。"
                         if not patterns else
                         "主题名称和规则尚未冻结；不得将该候选写入正式结果。"
                     ),
@@ -9834,7 +10045,7 @@ def continue_project_orchestration(
                 artifact_type = "CodebookCandidate"
                 source_artifact_ids = [str(primary_data["artifact_id"])] if primary_data else []
                 validation_status = ValidationStatus.WARNING
-                validation_warnings = ["Codebook 需要研究者定义纳入/排除边界并保留反例。"]
+                validation_warnings = ["Codebook 是系统生成候选；须通过隔离复核和冻结标签后才能成为确认结果。"]
             elif route == "QUALITATIVE" and action == "manual_theme_revision":
                 primary_data = _registered_qualitative_primary_data(project_id)
                 codebook_body = _latest_artifact_body(project_id, "CodebookCandidate") or {}
@@ -9846,15 +10057,15 @@ def continue_project_orchestration(
                     "route": route,
                     "status": "MANUAL_THEME_REVISION_CANDIDATE",
                     "input_codebook": codebook_body,
-                    "researcher_revision": feedback[:2000],
+                    "review_instruction": feedback[:2000],
                     "themes": themes,
-                    "revision_log": [{"event": "researcher_review", "detail": feedback[:2000]}] if feedback else [],
+                    "revision_log": [{"event": "automated_boundary_review_requested", "detail": feedback[:2000]}] if feedback else [],
                     "frozen": False,
                 }
                 artifact_type = "ManualThemeRevisionCandidate"
                 source_artifact_ids = [str(primary_data["artifact_id"])] if primary_data else []
                 validation_status = ValidationStatus.WARNING
-                validation_warnings = ["人工主题仍需研究者确认后才能用于监督确认。"]
+                validation_warnings = ["主题候选仍需隔离复核并冻结标签后才能用于监督确认。"]
             elif route == "QUALITATIVE" and action == "supervised_confirmation":
                 primary_data = _registered_qualitative_primary_data(project_id)
                 manual = _latest_artifact_body(project_id, "ManualThemeRevisionCandidate") or {}
@@ -10284,18 +10495,100 @@ def continue_project_orchestration(
                     validation_status = ValidationStatus.WARNING
                     validation_warnings = ["内部引用和结果链接已核对；仍需人工核对作者、年份、页码与主张范围。"]
             elif action == "reviewer_final_confirmation":
+                result_card = _latest_artifact_body(project_id, "QualitativeResultCard") or {}
+                citation_check = _latest_artifact_body(project_id, "ManuscriptCitationVerification") or {}
+                manuscript = _latest_artifact_body(project_id, "ManuscriptDraftZh") or {}
+                sections = manuscript.get("sections") if isinstance(manuscript.get("sections"), dict) else {}
+
+                def section_excerpt(section_name: str, *markers: str) -> str:
+                    text = " ".join(str(sections.get(section_name, "")).split())
+                    for marker in markers:
+                        position = text.find(marker)
+                        if position >= 0:
+                            start = max(0, position - 45)
+                            return text[start:start + 180] + ("…" if len(text) > start + 180 else "")
+                    return text[:180] + ("…" if len(text) > 180 else "")
+
+                sample = result_card.get("data_audit") if isinstance(result_card.get("data_audit"), dict) else {}
+                raw_rows = sample.get("raw_text_rows")
+                joined_students = sample.get("joined_students")
+                manuscript_text = "\n".join(str(value) for value in sections.values())
+                sample_consistent = (
+                    raw_rows is not None
+                    and joined_students is not None
+                    and str(raw_rows) in manuscript_text
+                    and str(joined_students) in manuscript_text
+                )
+                findings = [
+                    {
+                        "severity": "P1",
+                        "location": "方法、结果与讨论",
+                        "excerpt": section_excerpt("discussion", "未执行", "尚未"),
+                        "issue": "嵌入聚类、标签一致性、监督确认、学生层稳健性和组间检验尚未执行。",
+                        "source": "QualitativeResultCard.unresolved_questions",
+                        "required_action": "保持为候选分析稿，不得报告主题稳定性、模型性能或组间显著性。",
+                    },
+                    {
+                        "severity": "P1",
+                        "location": "结果",
+                        "excerpt": section_excerpt("results", "关键词命中", "候选主题"),
+                        "issue": "五类数字是可重叠的关键词命中数，不是冻结标签后的主题频数。",
+                        "source": "CodebookCandidate.codebook[*].evidence_count",
+                        "required_action": "保留候选措辞，不计算互斥比例或总体主题分布。",
+                    },
+                    {
+                        "severity": "P2",
+                        "location": "结果与讨论",
+                        "excerpt": section_excerpt("results", "概念理解", "定量处理"),
+                        "issue": "概念理解与定量处理、假设与理想化与一般性描述存在定义重叠风险。",
+                        "source": "CodebookCandidate.codebook[*]",
+                        "required_action": "正式分析前补充边界例、双重编码规则和隔离一致性复核。",
+                    },
+                    {
+                        "severity": "P2",
+                        "location": "引言与参考文献",
+                        "excerpt": section_excerpt("introduction", "物理问题解决", "公开"),
+                        "issue": (
+                            f"{citation_check.get('citation_count', 0)} 条内部引用均可追溯，"
+                            "但自动检查不等同于作者、年份、页码和论断范围的书目语义核验。"
+                        ),
+                        "source": "ManuscriptCitationVerification",
+                        "required_action": "投稿版本需补齐并核对正式书目信息。",
+                    },
+                ]
+                if not sample_consistent:
+                    findings.insert(0, {
+                        "severity": "P0",
+                        "location": "方法与结果",
+                        "excerpt": section_excerpt("methods", "样本流转", "样本"),
+                        "issue": f"结果卡样本边界 {raw_rows}→{joined_students} 未在当前正文中完整复现。",
+                        "source": "QualitativeResultCard.data_audit",
+                        "required_action": "退回写作并恢复完整样本流转，冻结前不得发布。",
+                    })
                 candidate = {
                     "project_id": project_id,
                     "action": action,
-                    "status": "INDEPENDENT_REVIEW_REQUIRED",
+                    "status": "AUTOMATED_INDEPENDENT_REVIEW_COMPLETE",
                     "review_policy": state.review_policy.value,
                     "required_checks": ["研究问题与方法一致性", "证据/结果可追溯性", "统计或定性解释边界", "引用准确性", "伦理与数据治理说明"],
-                    "boundary": "该产物是审稿包，不代表独立审稿已经完成。",
+                    "reviewer_role": "isolated_read_only_reviewer",
+                    "review_inputs": [
+                        "ManuscriptDraftZh", "QualitativeResultCard",
+                        "CodebookCandidate", "ManuscriptCitationVerification",
+                    ],
+                    "findings": findings,
+                    "sample_boundary_check": {
+                        "raw_text_rows": raw_rows,
+                        "joined_students": joined_students,
+                        "status": "CONSISTENT_IN_CURRENT_MANUSCRIPT" if sample_consistent else "INCONSISTENT",
+                    },
+                    "decision": "BLOCK_FREEZE" if not sample_consistent else "CANDIDATE_ANALYSIS_PACKAGE_ONLY",
+                    "boundary": "审稿角色只读取冻结稿和追溯产物并输出问题清单，不直接改稿，也不接受研究者预期作为判定依据。",
                 }
                 artifact_type = "FinalReviewPacket"
                 evidence_ids = []
                 validation_status = ValidationStatus.WARNING
-                validation_warnings = ["需要独立审稿人完成复核；研究者本人不能将此包标记为独立审稿通过。"]
+                validation_warnings = ["自动独立审稿已完成；当前结论仅支持冻结为候选分析包。"]
             else:
                 candidate = {"project_id": project_id, "action": action, "route": route, "phase": stream.phase.value, "source": "conversation_orchestrator", "status": "candidate"}
                 artifact_type = None
@@ -10957,27 +11250,6 @@ def project_workflow_formal_evidence(
     return workflow_controller.list_formal_evidence(project_id)
 
 
-@app.post(
-    "/api/v1/projects/{project_id}/workflow/evidence/{evidence_id}/promote",
-    response_model=FormalEvidenceRecord,
-)
-def promote_verified_project_evidence(
-    project_id: str,
-    evidence_id: str,
-    user: Annotated[UserProfile, Depends(current_user)],
-) -> FormalEvidenceRecord:
-    """Promote a source-verified evidence snapshot from the workbench."""
-
-    identity_service.get_project(user, project_id)
-    evidence = service.get_evidence(project_id, evidence_id)
-    return workflow_controller.promote_verified_evidence(
-        project_id,
-        evidence_id,
-        evidence.model_dump(mode="json"),
-        promoted_by=user.username,
-    )
-
-
 @app.post("/api/v1/projects/{project_id}/workflow/artifacts/{artifact_id}/decision")
 def project_workflow_artifact_decision(
     project_id: str,
@@ -11004,78 +11276,6 @@ def project_workflow_artifact_decision(
                 promoted_at=record.promoted_at.isoformat(),
             )
     return result
-
-
-class CodeArtifactVersionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    source_code: str = Field(min_length=1, max_length=200_000)
-    change_note: str | None = Field(default=None, max_length=500)
-
-
-@app.post("/api/v1/projects/{project_id}/workflow/artifacts/{artifact_id}/code-version")
-def project_workflow_code_version(
-    project_id: str,
-    artifact_id: str,
-    request: CodeArtifactVersionRequest,
-    user: Annotated[UserProfile, Depends(current_user)],
-) -> dict[str, object]:
-    """Persist a researcher-edited code candidate as a new immutable version."""
-
-    identity_service.get_project(user, project_id)
-    artifact = artifact_store.get(project_id, artifact_id)
-    content = artifact_content_store.get(project_id, artifact_id)
-    if artifact is None or content is None:
-        raise ContextInputError("artifact_not_found", "代码候选产物不存在")
-
-    code_keys = {"source_code", "code", "python_code", "generated_code", "script"}
-    has_code = any(isinstance(content.body.get(key), str) for key in code_keys)
-    if not has_code and content.artifact_type not in {
-        "AnalysisCodePlanCandidate",
-        "CodeSpecificationDraft",
-        "CodeReviewCandidate",
-        "PhysicsCodeValidationCandidate",
-        "PatternDiscoveryCodeCandidate",
-    }:
-        raise ContextInputError("artifact_is_not_code", "当前产物不是可编辑的代码候选")
-
-    body = dict(content.body)
-    source_key = next(
-        (key for key in code_keys if isinstance(body.get(key), str)),
-        "source_code",
-    )
-    body[source_key] = request.source_code
-    body["edited_by"] = user.username
-    body["change_note"] = request.change_note or "研究者编辑代码候选"
-    next_version = content.version + 1
-    saved_content = artifact_content_store.put(
-        ArtifactContent(
-            project_id=project_id,
-            artifact_id=artifact_id,
-            artifact_type=content.artifact_type,
-            version=next_version,
-            schema_version=content.schema_version,
-            body=body,
-        )
-    )
-    saved_artifact = artifact_store.put(
-        artifact.model_copy(
-            update={
-                "version": next_version,
-                "content_uri": f"artifact-content://{project_id}/{artifact_id}/{next_version}",
-                "sha256": saved_content.content_hash,
-                "created_at": saved_content.created_at,
-                "created_by": user.username,
-                "status": "CANDIDATE",
-                "supersedes_ref": artifact.content_uri,
-            }
-        )
-    )
-    return {
-        "artifact": saved_artifact.model_dump(mode="json"),
-        "content": saved_content.model_dump(mode="json"),
-        "change_note": body["change_note"],
-    }
 
 
 def _candidate_manuscript_markdown(
@@ -11495,11 +11695,7 @@ def workflow_artifacts(project_id: str) -> list[ArtifactRef]:
 
 @app.get("/api/v1/workflow/projects/{project_id}/artifact-contents")
 def workflow_artifact_contents(project_id: str) -> list[ArtifactContent]:
-    contents = artifact_content_store.list_project(project_id)
-    # Keep legacy QA-only projects visible in the same workbench contract as
-    # newer orchestrated projects.  These cards are clearly marked
-    # provisional and are never written to the immutable artifact store.
-    return [*contents, *_legacy_workflow_artifacts(project_id)]
+    return artifact_content_store.list_project(project_id)
 
 
 @app.get("/api/v1/workflow/projects/{project_id}/agent-runs")

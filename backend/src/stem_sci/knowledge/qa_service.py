@@ -56,6 +56,24 @@ _CGT_PROJECT_MARKERS = (
     "物理教育中的问题解决与文本分析",
     "physics problem-solving text",
 )
+_LAYERED_AI_PROJECT_MARKERS = (
+    "分层生成式 ai 支架",
+    "分层 ai 支架",
+    "分层生成式ai支架",
+    "分层ai支架",
+    "支架渐隐",
+    "支架撤除",
+    "无 ai 延迟迁移",
+    "独立迁移",
+    "物理建模",
+    "团队级配对区组",
+    "week 8",
+    "l1-l5",
+    "l1–l5",
+    "layered ai scaffolding",
+    "delayed transfer",
+    "independent transfer",
+)
 _LEGACY_AI_PROJECT_MARKERS = (
     "生成式人工智能",
     "generative artificial intelligence",
@@ -92,6 +110,8 @@ def _project_domain(project_context: str | None) -> str:
     normalized = (project_context or "").strip().lower()
     if not normalized:
         return "unknown"
+    if any(marker in normalized for marker in _LAYERED_AI_PROJECT_MARKERS):
+        return "layered_ai_scaffolding"
     if any(marker in normalized for marker in _CGT_PROJECT_MARKERS):
         return "physics_cgt"
     if any(marker in normalized for marker in _LEGACY_AI_PROJECT_MARKERS) or (
@@ -100,6 +120,148 @@ def _project_domain(project_context: str | None) -> str:
     ):
         return "ai_questionnaire"
     return "unknown"
+
+
+def _layered_ai_scaffolding_fallback_answer(
+    question: str,
+    *,
+    planned_research_acts: list[str] | None = None,
+    planned_follow_up_question: str | None = None,
+    allow_unplanned_follow_up: bool = True,
+) -> str:
+    """Give a substantive, bounded fallback for the layered-scaffold case.
+
+    This is deliberately design-aware but result-blind. It can explain the
+    study logic when a conversational model is unavailable, while refusing to
+    invent a dataset, an executed model, or a real educational effect.
+    """
+
+    normalized = question.strip().lower()
+    if any(term in normalized for term in ("主要结局", "迁移", "week 8", "无 ai")) and not any(
+        term in normalized for term in (
+            "结果卡", "效应量", "95% ci", "p 值", "显著", "评分量规", "评分流程",
+            "评分者", "盲法评分", "icc", "estimand", "协变量", "主要模型", "替代方案", "固定效应",
+        )
+    ):
+        return (
+            "本案例的主要结局应是第 8 周生成式 AI 完全关闭后的个人无 AI 延迟迁移得分，也就是撤除工具后的独立迁移，"
+            "而不是课程内完成速度或第 6 周成绩。迁移任务要保持核心物理关系、建模步骤和验证逻辑，"
+            "同时改变表面情境、参数、数据形式和叙事；这样测到的才更接近撤除外部支持后能否独立重建模型。"
+            "处理应在团队层级按配对区组分配，迁移在个人层级测量，后续推断必须按团队聚类。"
+            "课程末建模、动机、焦虑、认知负荷、代码质量和错误率可作为预先列出的次要结局。"
+        )
+    if any(term in normalized for term in ("评分量规", "评分流程", "评分者", "盲法评分", "icc")):
+        return (
+            "Week 8 迁移应按五维量规评分：物理模型正确性、假设与边界、算法与代码、验证与误差、"
+            "解释与迁移，每维 0–4 分后换算为 0–100。建议两名不知道处理条件的评分者独立评 20% 样本，"
+            "先培训并用锚定样例校准，再报告 ICC(2,k) 和平均绝对差。评分一致性只说明评分过程较稳定，"
+            "不能替代量规效度、任务等价性或学习效果证据。"
+        )
+    if any(term in normalized for term in ("数据字典", "最低字段", "主键", "数据表", "层级审计")):
+        return (
+            "最低数据包应至少包括六张表：学生表（student_id、team_id、class_id、block_id 和三项前测）、"
+            "团队分配表（team_id、condition、scaffold_version）、Week 1–6 课程结果、Week 8 无 AI 迁移、"
+            "AI 事件日志和评分者表。先验证学生、团队、班级、周次、事件五层主键及一对多连接，"
+            "再报告缺失与重复；任何 team_id 或 student_id 冲突都要阻断冻结，不能用行号静默替代。"
+        )
+    if any(term in normalized for term in ("estimand", "协变量", "主要模型", "替代方案", "固定效应")):
+        return (
+            "RQ2 的 estimand 是：控制物理、Python 和建模三项前测并加入配对区组固定效应后，"
+            "分层 AI 支架相对常规支持在第 8 周个人无 AI 延迟迁移得分上的平均调整差异。"
+            "主分析可用 ANCOVA，标准误按团队聚类并报告 CR2/Satterthwaite；20 个团队较少，"
+            "应并列 wild cluster bootstrap 和区组内随机化检验。随机截距模型或未调整差异可作敏感性分析，"
+            "但不能把 80 名学生当成 80 个独立处理单位。"
+        )
+    if any(term in normalized for term in ("代码审查", "code reviewer", "层级错配", "数据泄漏", "自由度")):
+        return (
+            "独立 Code Reviewer 应只报告问题和修改建议：检查团队级处理与聚类、前测是否泄漏 Week 8 信息、"
+            "评分者是否盲法、过程指标是否越权进入确认性模型、模拟标记是否保留、自由度是否按团队而非学生计算。"
+            "代码生成、代码审查和执行批准必须分开；在审查通过并由研究者批准前，不能把候选代码或论文数字写成已执行结果。"
+        )
+    if "因果措辞" in normalized or (
+        any(term in normalized for term in ("提高", "促进", "导致"))
+        and any(term in normalized for term in ("因果", "表述", "扫描"))
+    ):
+        return (
+            "当前叙事应把“提高/促进/导致”降为“与预设方向一致”“调整差异”或“探索性关联”。"
+            "只有真实随机分配、干预忠实度、预注册和独立迁移结局同时成立，才可谨慎讨论处理效应；"
+            "AI 日志中的采纳、直接答案、验证和独立尝试仍不能直接称为学习机制。"
+        )
+    if any(term in normalized for term in ("结果卡", "主要结果", "效应量", "95% ci", "p 值", "显著")):
+        return (
+            "结果卡只能从实际执行日志和冻结输出读取样本数、调整差异、置信区间、CR2、wild bootstrap、"
+            "配对随机化和诊断。当前若没有这些执行产物，我不会引用论文中的 6.96 或任何 p 值；"
+            "最多先生成结果卡字段和缺口清单。即使以后得到数字，也必须标注为人工生成的模拟结果，"
+            "只能验证流程和报告链，不能写成真实教学效果。"
+        )
+    if any(term in normalized for term in ("reviewer", "独立审稿", "主张—证据", "引用核验", "冻结最终", "交付包")):
+        return (
+            "独立 Reviewer 应只读冻结稿、结果卡和证据表，按 P0/P1/P2 定位问题，不直接改稿。"
+            "重点核验模拟声明、团队聚类、过程指标的探索性标签、跨零的代码质量区间、缺失敏感性、"
+            "样本结构和引用定位。最终交付要列出论文、结果卡、代码、日志、数据字典、图表、证据表、审稿记录、"
+            "缺失项、稿件等级、哈希和冻结时间；冻结后不得根据附件论文回填数字。"
+        )
+    if any(term in normalized for term in ("l1", "l2", "l3", "l4", "l5", "分层", "渐隐", "支架")):
+        return (
+            "我建议把干预写成可复现的五层支架：L1 先要求学生说明目标、变量、假设和验证计划；"
+            "L2 解释概念、变量关系和单位；L3 提示方程结构、边界条件或数值方法；"
+            "L4 只有在提交报错、现有代码和错误判断后才开放调试；L5 最后才提供局部函数、伪代码或简化示例，"
+            "不默认输出可提交答案。第 4–6 周按预设节奏降低高控制支持，第 8 周完全关闭。"
+            "每次请求都要记录触发原因、支架层级、学生响应、代码版本和验证事件，否则无法判断渐隐是否真正执行。"
+        )
+    if any(term in normalized for term in ("团队", "区组", "聚类", "随机", "ancova", "cr2", "bootstrap", "统计")):
+        return (
+            "推荐团队级配对区组随机、个人级主要结局，并把团队作为处理和聚类单位。"
+            "先按物理、Python 和建模前测配对团队，再在区组内分配条件；主要模型可用 ANCOVA，"
+            "控制三项前测并加入区组固定效应，标准误按团队聚类并报告 CR2/Satterthwaite。"
+            "由于只有 20 个团队，还应并列报告 wild cluster bootstrap 和区组内随机化检验。"
+            "不能把 80 名学生当成 80 个独立处理单位，也不能只凭多个 p 值一致就声称因果成立。"
+        )
+    if any(term in normalized for term in ("过程", "日志", "直接答案", "成功修改", "验证比例", "机制", "认知卸载")):
+        return (
+            "AI 交互日志适合做探索性过程证据，不能直接叫作学习机制。"
+            "高层支架采纳、直接答案比例、成功修改、验证和独立尝试都可能有多种含义："
+            "例如验证多可能代表更强反思，也可能代表反复失败；直接答案多可能压缩解释机会，"
+            "也可能只处理了低价值语法任务。当前应把它们标准化后做探索性关联，并在真实研究中结合代码差分、"
+            "刺激回忆、屏幕事件或置信度判断，才能进一步讨论认知卸载或责任转移。"
+        )
+    if any(term in normalized for term in ("模拟", "真实效果", "外推", "伦理", "知情同意")):
+        return (
+            "这篇论文的样本、效应量和显著性来自人工生成的模拟数据，当前只能验证研究设计、代码、"
+            "图表和报告之间是否一致，不能作为真实教学效果证据。正式研究还需要伦理审批、知情同意、"
+            "日志采集授权、评分者培训、量表信效度和预注册；即使真实实施，两组设计比较的也是“分层 AI 支架方案”"
+            "与常规支持的整体差异，不能单独拆出 AI、渐隐策略和帮助剂量的作用。"
+        )
+    if any(term in normalized for term in ("结果", "显著", "效应量", "代码质量", "结果卡")):
+        return (
+            "在实际结果卡生成前，我不会引用论文中的效应量或 p 值。结果回答必须逐项连接冻结数据、"
+            "分析计划、代码版本、执行日志和输出表；课程内结果可以与无 AI 迁移分开解释，"
+            "代码质量若置信区间跨零，就不能被压缩为“所有指标都改善”。"
+            "如果当前只有论文而没有执行产物，我能先给出分析规格和解释边界，但不能声称模型已经运行。"
+        )
+    if any(term in normalized for term in ("论文", "写作", "摘要", "讨论", "引言")):
+        return (
+            "写作应以结果卡为唯一事实中间层：摘要和结果只写已执行的样本、估计值和不确定性，"
+            "讨论分开标记数据支持、与支架/迁移理论一致的解释以及仍属推测的机制。"
+            "正文必须反复保留“模拟研究、不能外推真实教学效果”的边界，并把干预忠实度、团队数量少、"
+            "整体方案不可拆分和过程日志代理性列入局限。"
+        )
+    if planned_follow_up_question:
+        return (
+            f"我会围绕“分层 AI 支架撤除后的独立迁移”处理这轮问题：{question.strip()}\n\n"
+            "当前不把缺失信息补成事实。真正会改变研究路线的是："
+            f"{planned_follow_up_question}"
+        )
+    if not allow_unplanned_follow_up:
+        return (
+            f"我理解你现在讨论的是：{question.strip()}。"
+            "我会继续围绕支架干预、无 AI 迁移和可追溯结果卡回答，不虚构尚未执行的分析。"
+        )
+    return (
+        f"我理解你现在要推进的是：{question.strip()}。"
+        "这个案例的核心判断是把“有 AI 时表现更好”和“撤除 AI 后仍能独立建模”分开；"
+        "后续会以冻结数据和结果卡为准，不把论文中的模拟数字当成真实效果。"
+    )
 
 
 def _cgt_fallback_answer(
@@ -289,7 +451,15 @@ def _discussion_fallback_answer(
     """
 
     normalized = question.strip().lower()
-    if _project_domain(project_context) == "physics_cgt":
+    domain = _project_domain(project_context)
+    if domain == "layered_ai_scaffolding":
+        return _layered_ai_scaffolding_fallback_answer(
+            question,
+            planned_research_acts=planned_research_acts,
+            planned_follow_up_question=planned_follow_up_question,
+            allow_unplanned_follow_up=allow_unplanned_follow_up,
+        )
+    if domain == "physics_cgt":
         return _cgt_fallback_answer(
             question,
             planned_research_acts=planned_research_acts,
