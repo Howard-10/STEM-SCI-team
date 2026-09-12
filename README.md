@@ -12,10 +12,10 @@ The Context MVP accepts Markdown, TXT, JSON, and text-extractable PDF files unde
 
 The merged workspace keeps the two products isolated:
 
-- `backend/` + `frontend/`: 助研, using the STEM-SCI research API on port `8013` and frontend on port `5177`.
+- `backend/` + `frontend/`: 助研, using the STEM-SCI research API on port `8001` and frontend on port `5173`.
 - `integrations/StarMap-Voyage/`: 助学, using its own teaching services on ports `8002`, `8800`, `8000`, and `8501`, with its frontend on port `5178`.
 
-Start the complete local environment with `start-merged.bat`, then open `http://127.0.0.1:5177`. After login, the unified route at `/workspace/select` lets the user choose 助研 or 助学. 助学 is rendered from the independent StarMap frontend and can be opened in a separate browser window from the workspace toolbar.
+Start the complete local environment with `start-merged.bat`, then open `http://127.0.0.1:5173`. After login, the unified route at `/workspace/select` lets the user choose 助研 or 助学. 助学 is rendered from the independent StarMap frontend and can be opened in a separate browser window from the workspace toolbar.
 
 助学服务的本地密钥配置位于 `integrations/StarMap-Voyage/.env`，该文件已被 Git 忽略；启动脚本会自动加载其中的 `SILICONFLOW_API_KEY`。
 

@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-BASE = "http://127.0.0.1:8013/api/v1"
+BASE = "http://127.0.0.1:8001/api/v1"
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DATA_ROOT = ROOT / "test_data" / "public_reanalysis" / "cgt_physics_education"
 PAPER = DATA_ROOT / "paper_tschisgale_2023.pdf"

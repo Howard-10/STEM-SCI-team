@@ -28,7 +28,7 @@ from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_BASE = os.environ.get("STEM_SCI_ACCEPTANCE_BASE", "http://127.0.0.1:8013/api/v1")
+DEFAULT_BASE = os.environ.get("STEM_SCI_ACCEPTANCE_BASE", "http://127.0.0.1:8001/api/v1")
 DEFAULT_PAPER = ROOT / "test_data" / "stem_ways_thinking_2025.pdf"
 DEFAULT_DATA = ROOT / "test_data" / "sphere_fci_quantitative.csv"
 DEFAULT_TOPIC = (

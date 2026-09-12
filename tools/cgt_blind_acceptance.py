@@ -20,7 +20,7 @@ DATA_ROOT = ROOT / "test_data" / "public_reanalysis" / "cgt_physics_education"
 TEXT_DATA = DATA_ROOT / "Textual_descriptions.csv"
 BACKGROUND_DATA = DATA_ROOT / "Additional_data.csv"
 SOURCE_PAPER = DATA_ROOT / "paper_tschisgale_2023.pdf"
-DEFAULT_BASE = "http://127.0.0.1:8013/api/v1"
+DEFAULT_BASE = "http://127.0.0.1:8001/api/v1"
 
 
 def call(base: str, method: str, path: str, token: str | None = None,

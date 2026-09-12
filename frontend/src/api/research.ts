@@ -1,7 +1,7 @@
 import { ApiRequestError } from "./auth";
 
 // Use the same relative API base as the authenticated workspace so Vite
-// proxies every research request to the active local backend on port 8013.
+// proxies every research request to the active local backend on port 8001.
 const base = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
 export type SchemaValidationReport = {
