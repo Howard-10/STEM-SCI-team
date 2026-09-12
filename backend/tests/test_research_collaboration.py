@@ -373,7 +373,7 @@ def test_unverified_candidate_cannot_change_a_belief(tmp_path: Path) -> None:
 
 def test_evidence_review_package_projects_matrix_and_gaps(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
-    decision = _turn(engine, "它应该提高学习效率。")
+    _turn(engine, "它应该提高学习效率。")
     assumption = next(node for node in engine.graph("project-1").nodes if node.node_type == "assumption")
     package = {
         "paper_cards": [{
