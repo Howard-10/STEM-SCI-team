@@ -147,6 +147,188 @@ const demoProjectId = import.meta.env.VITE_PROJECT_ID && import.meta.env.VITE_PR
   ? import.meta.env.VITE_PROJECT_ID
   : "physics-ai-demo";
 const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
+const showcaseDemoAccountEmail = "2594606621@qq.com";
+const showcaseDemoProjectId = "project-7f9bd1491c364356";
+
+const showcaseFormalEvidence: FormalEvidenceRecord[] = [
+  {
+    project_id: showcaseDemoProjectId,
+    evidence_id: "evd_f34ae17bd0904da6bdc745067d9c28be",
+    artifact_id: "demo:formal-evidence:research-boundary",
+    plan_id: "demo:complete-workflow",
+    task_id: "demo:evidence-review",
+    agent_id: "evidence_audit",
+    conversation_id: null,
+    turn_id: null,
+    promoted_by: "demo-reviewer",
+    promoted_at: "2026-09-12T15:30:00Z",
+    evidence_ref: {
+      paper_title: "模型写作依据与图表参考终稿",
+      source_filename: "分层AI支架促进物理建模独立迁移_终稿参考.docx",
+      page: 1,
+      excerpt: "课程内即时表现不能替代撤除工具后的独立迁移证据；主要结局应在生成式 AI 完全关闭的延迟任务中测量。",
+      verification_status: "human_verified",
+      simulated_data: true,
+    },
+    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
+  },
+  {
+    project_id: showcaseDemoProjectId,
+    evidence_id: "evd_707349993ed442dc80ebf8fc7575f30d",
+    artifact_id: "demo:formal-evidence:scaffolding",
+    plan_id: "demo:complete-workflow",
+    task_id: "demo:evidence-review",
+    agent_id: "evidence_audit",
+    conversation_id: null,
+    turn_id: null,
+    promoted_by: "demo-reviewer",
+    promoted_at: "2026-09-12T15:31:00Z",
+    evidence_ref: {
+      paper_title: "模型写作依据与图表参考终稿",
+      source_filename: "分层AI支架促进物理建模独立迁移_终稿参考.docx",
+      page: 3,
+      excerpt: "分层支持需要与学习者状态匹配，并通过逐步撤除完成责任转移；更多帮助本身不等于更深层学习。",
+      verification_status: "human_verified",
+      simulated_data: true,
+    },
+    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
+  },
+  {
+    project_id: showcaseDemoProjectId,
+    evidence_id: "evd_54b43b6fe0f5421b8520b9839f10415e",
+    artifact_id: "demo:formal-evidence:primary-outcome",
+    plan_id: "demo:complete-workflow",
+    task_id: "demo:evidence-review",
+    agent_id: "evidence_audit",
+    conversation_id: null,
+    turn_id: null,
+    promoted_by: "demo-reviewer",
+    promoted_at: "2026-09-12T15:32:00Z",
+    evidence_ref: {
+      paper_title: "模型写作依据与图表参考终稿",
+      source_filename: "分层AI支架促进物理建模独立迁移_终稿参考.docx",
+      page: 4,
+      excerpt: "两周后的结构相关新任务在 AI 完全关闭条件下完成，并以盲法评分的延迟迁移得分作为主要结局。",
+      verification_status: "human_verified",
+      simulated_data: true,
+    },
+    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
+  },
+  {
+    project_id: showcaseDemoProjectId,
+    evidence_id: "evd_88ead6e079e443ee984ac149fce65fc2",
+    artifact_id: "demo:formal-evidence:method-risk",
+    plan_id: "demo:complete-workflow",
+    task_id: "demo:evidence-review",
+    agent_id: "evidence_audit",
+    conversation_id: null,
+    turn_id: null,
+    promoted_by: "demo-reviewer",
+    promoted_at: "2026-09-12T15:33:00Z",
+    evidence_ref: {
+      paper_title: "用户上传的新手论文对照稿",
+      source_filename: "生成式AI辅助Python物理建模教学_新手稿.docx",
+      page: 6,
+      excerpt: "初稿把团队内学生直接视为独立个体，且只使用 t 检验，未控制基线、聚类相关和多重比较风险。",
+      verification_status: "human_verified",
+      simulated_data: true,
+    },
+    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
+  },
+];
+
+const showcaseProjectClaims: ProjectClaim[] = [
+  {
+    claim_id: "demo-claim-transfer-boundary",
+    project_id: showcaseDemoProjectId,
+    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
+    section: "introduction",
+    claim_text: "AI 可用阶段的任务增益不能直接解释为撤除工具后仍能保持的独立建模能力。",
+    claim_type: "theoretical_boundary",
+    support_type: "formal_evidence",
+    support_evidence_ids: ["evd_f34ae17bd0904da6bdc745067d9c28be", "evd_707349993ed442dc80ebf8fc7575f30d"],
+    support_result_ids: [],
+    support_artifact_ids: ["mentor_planning-329471637e414150992406afba62597b:artifact:1"],
+    confidence: 0.92,
+    verification_status: "VERIFIED",
+    reviewer_status: "APPROVED",
+  },
+  {
+    claim_id: "demo-claim-design",
+    project_id: showcaseDemoProjectId,
+    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
+    section: "methods",
+    claim_text: "研究采用团队级区组随机设计，并在分析中同时控制配对区组、基线能力和团队内相关。",
+    claim_type: "study_design",
+    support_type: "protocol_and_code",
+    support_evidence_ids: ["evd_88ead6e079e443ee984ac149fce65fc2"],
+    support_result_ids: [],
+    support_artifact_ids: ["research_design-cb29d7d0fe984a45a44339eebd4fdcdd:artifact:1", "demo:project-7f9bd1491c364356:analysis-code-plan"],
+    confidence: 0.95,
+    verification_status: "VERIFIED",
+    reviewer_status: "APPROVED",
+  },
+  {
+    claim_id: "demo-claim-primary-outcome",
+    project_id: showcaseDemoProjectId,
+    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
+    section: "methods",
+    claim_text: "主要结局是两周后、AI 完全关闭条件下的新任务独立迁移得分。",
+    claim_type: "outcome_definition",
+    support_type: "formal_evidence_and_protocol",
+    support_evidence_ids: ["evd_54b43b6fe0f5421b8520b9839f10415e"],
+    support_result_ids: [],
+    support_artifact_ids: ["research_design-cb29d7d0fe984a45a44339eebd4fdcdd:artifact:1"],
+    confidence: 0.98,
+    verification_status: "VERIFIED",
+    reviewer_status: "APPROVED",
+  },
+  {
+    claim_id: "demo-claim-primary-result",
+    project_id: showcaseDemoProjectId,
+    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
+    section: "results",
+    claim_text: "人工模拟数据中，分层 AI 支架组的调整后延迟迁移得分高 6.96 分，95% CI [3.60, 10.31]。",
+    claim_type: "numeric_result",
+    support_type: "validated_result_card",
+    support_evidence_ids: [],
+    support_result_ids: ["demo-result-card-layered-ai-transfer-v1"],
+    support_artifact_ids: ["demo:project-7f9bd1491c364356:statistical-result-card"],
+    confidence: 0.99,
+    verification_status: "VERIFIED",
+    reviewer_status: "APPROVED",
+  },
+  {
+    claim_id: "demo-claim-robustness",
+    project_id: showcaseDemoProjectId,
+    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
+    section: "results",
+    claim_text: "CR2、wild cluster bootstrap 与配对随机化检验在人工模拟数据中给出方向一致的稳健性结果。",
+    claim_type: "robustness_result",
+    support_type: "validated_result_card",
+    support_evidence_ids: [],
+    support_result_ids: ["demo-result-card-layered-ai-transfer-v1"],
+    support_artifact_ids: ["demo:project-7f9bd1491c364356:statistical-result-card", "demo:project-7f9bd1491c364356:physics-code-validation"],
+    confidence: 0.97,
+    verification_status: "VERIFIED",
+    reviewer_status: "APPROVED",
+  },
+  {
+    claim_id: "demo-claim-simulation-limit",
+    project_id: showcaseDemoProjectId,
+    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
+    section: "ethics_limitations",
+    claim_text: "全部样本、效应量、显著性结果与图表均为人工生成模拟数据，只用于演示可复核工作流，不构成真实教学效果证据。",
+    claim_type: "simulation_disclosure",
+    support_type: "project_governance",
+    support_evidence_ids: ["evd_f34ae17bd0904da6bdc745067d9c28be"],
+    support_result_ids: ["demo-result-card-layered-ai-transfer-v1"],
+    support_artifact_ids: ["paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2"],
+    confidence: 1,
+    verification_status: "VERIFIED",
+    reviewer_status: "APPROVED",
+  },
+];
 const starMapWebUrl = import.meta.env.VITE_STARMAP_WEB_URL
   || (import.meta.env.DEV ? "http://127.0.0.1:5178" : "/teaching/");
 // Agent selection and planning are internal implementation details.  The
@@ -708,7 +890,7 @@ export function App() {
   const [agentPlans, setAgentPlans] = useState<AgentExecutionPlan[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutputSummary[]>([]);
   const [pageMaterials, setPageMaterials] = useState<AgentPageMaterial[]>([]);
-  const [formalEvidence, setFormalEvidence] = useState<FormalEvidenceRecord[]>([]);
+  const [apiFormalEvidence, setFormalEvidence] = useState<FormalEvidenceRecord[]>([]);
   const [agentPlanDraft, setAgentPlanDraft] = useState("");
   const [selectedAgentTaskIds, setSelectedAgentTaskIds] = useState<string[]>([]);
   const [agentPlanBusy, setAgentPlanBusy] = useState(false);
@@ -729,7 +911,7 @@ export function App() {
   const [orchestrationHistory, setOrchestrationHistory] = useState<ConversationalHistoryEntry[]>([]);
   const [evidenceReviewPackage, setEvidenceReviewPackage] = useState<EvidenceReviewPackage | null>(null);
   const [orchestrationArtifacts, setOrchestrationArtifacts] = useState<OrchestrationArtifactContent[]>([]);
-  const [projectClaims, setProjectClaims] = useState<ProjectClaim[]>([]);
+  const [apiProjectClaims, setProjectClaims] = useState<ProjectClaim[]>([]);
   const [reproducibilityReview, setReproducibilityReview] = useState<ReproducibilityReviewResult | null>(null);
   const [reproducibilityBusy, setReproducibilityBusy] = useState(false);
   const [reproducibilityError, setReproducibilityError] = useState("");
@@ -1011,8 +1193,14 @@ export function App() {
   const latestManuscriptArtifact = [...orchestrationArtifacts]
     .reverse()
     .find((item) => item.artifact_type === "ManuscriptDraftZh" || item.artifact_type === "ManuscriptOutline") ?? null;
-  const isShowcaseDemoProject = auth?.user.email === "2594606621@qq.com"
-    && projectId === "project-7f9bd1491c364356";
+  const isShowcaseDemoProject = auth?.user.email === showcaseDemoAccountEmail
+    && projectId === showcaseDemoProjectId;
+  const formalEvidence = apiFormalEvidence.length
+    ? apiFormalEvidence
+    : isShowcaseDemoProject ? showcaseFormalEvidence : [];
+  const projectClaims = apiProjectClaims.length
+    ? apiProjectClaims
+    : isShowcaseDemoProject ? showcaseProjectClaims : [];
   const latestStatisticalResultArtifact = latestArtifact("StatisticalResultCard");
   const demoArtifactStatisticalResultCard: DataPipelineState["statistical_result_card"] = (() => {
     if (!isShowcaseDemoProject || latestStatisticalResultArtifact?.body.simulated_data !== true) return null;
@@ -3043,7 +3231,7 @@ export function App() {
               <div className="paper-figure-grid">
                 {manuscriptFigureManifest.map((figure) => (
                   <figure key={`${figure.figure_number}-${figure.url}`}>
-                    <img src={figure.url} alt={figure.alt_text} loading="lazy" />
+                    <img src={figure.url} alt={figure.alt_text} loading="eager" />
                     <figcaption>{figure.caption}</figcaption>
                   </figure>
                 ))}
