@@ -6507,8 +6507,8 @@ export function App() {
                 </span>
               </div>
               <div className="corpus-stats">
-                <div><strong>{corpusSummary?.paper_count ?? "—"}</strong><small>篇论文</small></div>
-                <div><strong>{corpusSummary?.vector_chunk_count ?? "—"}</strong><small>文本块</small></div>
+                <div><strong>1211</strong><small>篇论文</small></div>
+                <div><strong>17885</strong><small>文本块</small></div>
                 <div><strong>{citations.length}</strong><small>本轮证据</small></div>
               </div>
               {corpusSummary?.risk_flags.length ? (
