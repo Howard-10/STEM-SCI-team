@@ -727,7 +727,7 @@ function makeWelcome(projectTitle: string, freshThread = false): ChatMessage {
     role: "assistant",
     content: freshThread
       ? `已开始一段新对话。它不会带入上一段聊天文字，但仍会使用当前项目“${projectTitle}”中已经上传的论文、数据和研究记录。若要做完全隔离的测试，请新建一个项目。`
-      : `你好，我是 STEM-SCI 研究助手。当前项目是“${projectTitle}”。\n\n你可以直接提问、比较方案、补充条件或修改想法；涉及检索、冻结方案、执行分析等高风险动作时，我会在对话中向你确认。`,
+      : `你好，我是 STEM-SSCI/SCI 研究助手。当前项目是“${projectTitle}”。\n\n你可以直接提问、比较方案、补充条件或修改想法；涉及检索、冻结方案、执行分析等高风险动作时，我会在对话中向你确认。`,
   };
 }
 
@@ -5301,8 +5301,8 @@ export function App() {
         <div className="research-brand">
           <div className="research-logo">S</div>
           <div>
-            <strong>STEM-SCI</strong>
-            <span>科研智能工作台</span>
+            <strong>STEM-SSCI/SCI</strong>
+            <span>智研育航 · 科研智能工作台</span>
           </div>
           <button
             className="header-icon-button workspace-collapse-button"
@@ -7232,13 +7232,13 @@ export function App() {
         <div className="login-overlay">
           <div className="login-card">
             <div className="research-logo large">S</div>
-            <span className="chat-kicker">STEM-SCI</span>
+            <span className="chat-kicker">智研育航 · STEM-SSCI/SCI</span>
             <div className="auth-heading-row">
               <div>
                 <h2>{authMode === "login" ? "登录你的科研工作台" : "创建科研工作台账号"}</h2>
                 <p>
                   {authMode === "login"
-                    ? "登录后可以保存项目、对话、论文和长期研究记忆。这里使用 STEM-SCI 本地账号，不是 GitHub 账号。"
+                    ? "登录后可以保存项目、对话、论文和长期研究记忆。这里使用智研育航本地账号，不是 GitHub 账号。"
                     : "注册后即可创建项目，并把对话、证据和研究产出保存到本地后端。"}
                 </p>
               </div>

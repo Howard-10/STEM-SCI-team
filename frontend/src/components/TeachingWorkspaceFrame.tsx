@@ -12,8 +12,8 @@ export function TeachingWorkspaceFrame({ url, userLabel, onBack, onSignOut }: Pr
         <div className="teaching-workspace-brand">
           <span className="teaching-workspace-mark">学</span>
           <span>
-            <strong>助学工作空间</strong>
-            <small>星图学航 · 独立教学服务</small>
+            <strong>智研育航助学</strong>
+            <small>独立教学服务</small>
           </span>
         </div>
         <div className="teaching-workspace-actions">
@@ -25,8 +25,8 @@ export function TeachingWorkspaceFrame({ url, userLabel, onBack, onSignOut }: Pr
           </a>
         </div>
       </header>
-      <section className="teaching-workspace-frame" aria-label="星图学航助学平台">
-        <iframe title="星图学航助学平台" src={url} />
+      <section className="teaching-workspace-frame" aria-label="智研育航助学平台">
+        <iframe title="智研育航助学平台" src={url} />
       </section>
     </main>
   );

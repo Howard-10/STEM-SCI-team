@@ -17,7 +17,7 @@ export function WorkspaceModeSelector({ user, onSelect, onSignOut }: Props) {
         <div className="workspace-mode-heading">
           <div className="research-logo large">S</div>
           <div>
-            <span className="chat-kicker">STEM-SCI 统一入口</span>
+            <span className="chat-kicker">智研育航 · STEM-SSCI/SCI 统一入口</span>
             <h1 id="workspace-mode-title">你好，{displayName}</h1>
             <p>请选择今天要进入的工作空间</p>
           </div>
@@ -49,8 +49,8 @@ export function WorkspaceModeSelector({ user, onSelect, onSignOut }: Props) {
             <span className="workspace-mode-symbol">学</span>
             <span className="workspace-mode-card-copy">
               <strong>助学</strong>
-              <small>星图学航 STEM 教学平台</small>
-              <em>教案设计、课程案例、学习路径、知识星图</em>
+              <small>智研育航助学 · STEM 教学平台</small>
+              <em>教案设计、教学案例、学习路径、知识星图</em>
             </span>
             <span className="workspace-mode-arrow" aria-hidden="true">→</span>
           </button>

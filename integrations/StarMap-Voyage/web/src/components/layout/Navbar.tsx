@@ -2,8 +2,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { BookOpen, GraduationCap } from 'lucide-react'
 
 const MODULES = [
+  { path: '/course-cases', label: '教学案例', icon: BookOpen },
   { path: '/teach', label: '教学设计', icon: GraduationCap },
-  { path: '/course-cases', label: '课程案例', icon: BookOpen },
 ]
 
 function Navbar() {
@@ -26,8 +26,8 @@ function Navbar() {
             XT
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold tracking-wide text-indigo-950">星图学航</div>
-            <div className="text-xs text-indigo-400">STEM 教学设计平台</div>
+            <div className="text-sm font-semibold tracking-wide text-indigo-950">智研育航助学</div>
+            <div className="text-xs text-indigo-400">STEM 教学设计与案例平台</div>
           </div>
         </Link>
 

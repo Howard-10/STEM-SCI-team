@@ -61,7 +61,7 @@ function AnswerMessage({
       <div className="chat-message chat-message-assistant">
         <div className="assistant-avatar">S</div>
         <div className="chat-bubble assistant-bubble welcome-bubble">
-          <div className="message-label">STEM-SCI 研究助手</div>
+          <div className="message-label">STEM-SSCI/SCI 研究助手</div>
           <p>{message.text}</p>
         </div>
       </div>
@@ -158,7 +158,7 @@ export function ProjectWorkspacePage({ projectId: projectIdProp, onNavigate }: {
     const welcome: ChatMessage = {
       id: "welcome",
       role: "assistant",
-      text: "你好，我是 STEM-SCI 研究助手。你可以直接描述一个 Physics-STEM 研究问题，我会先检索知识库，再给出回答、依据和研究边界。",
+      text: "你好，我是 STEM-SSCI/SCI 研究助手。你可以直接描述一个 Physics-STEM 研究问题，我会先检索知识库，再给出回答、依据和研究边界。",
       evidence: [],
     };
     if (!demoMode) return [welcome];

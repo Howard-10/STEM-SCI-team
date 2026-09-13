@@ -201,7 +201,7 @@ export function ResearchProgressBoard({
           </div>
         </div>
         <div className="progress-facts">
-          <div><span>研究协作</span><strong>STEM-SCI 研究助手</strong></div>
+          <div><span>研究协作</span><strong>STEM-SSCI/SCI 研究助手</strong></div>
           <div><span>证据</span><strong>{evidenceCount ? `${evidenceCount} 条` : "待收集"}</strong></div>
           <div><span>研究产物</span><strong>{artifactCount ? `${artifactCount} 项` : "待生成"}</strong></div>
           <div><span>互动状态</span><strong className={waiting ? "fact-waiting" : "fact-ready"}>{orchestration?.lifecycle_status === "COMPLETED" ? "可复核" : waiting ? "需要你的判断" : "后台处理中"}</strong></div>
