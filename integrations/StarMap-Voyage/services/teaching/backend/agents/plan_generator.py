@@ -25,6 +25,10 @@ LLM_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
 LLM_MODEL = "deepseek-ai/DeepSeek-V3"
 LLM_TIMEOUT = float(os.environ.get("TEACHING_LLM_TIMEOUT", "120"))
 DEFAULT_MAX_TOKENS = int(os.environ.get("TEACHING_MAX_TOKENS", "1800"))
+MAX_REPAIR_ATTEMPTS = max(
+    0,
+    int(os.environ.get("TEACHING_REPAIR_ATTEMPTS", "2")),
+)
 
 
 def _resolve_llm_config() -> Dict[str, str]:
@@ -138,8 +142,7 @@ def generate_teaching_plan(
     """
     Generate a complete STEM teaching plan for a student.
     """
-    import time
-
+    started_at = time.monotonic()
     # Check cache
     cache_key = f"{PLAN_FORMAT_VERSION}|{user_query}|{grade_level}|{include_3d_print}"
     if cache_key in _plan_cache:
@@ -177,11 +180,13 @@ def generate_teaching_plan(
 
     quality = _validate_plan_quality(plan_markdown)
     revision_attempted = False
+    repair_attempts = 0
     if not quality["ok"]:
         revision_attempted = True
         current_markdown = plan_markdown
         repair_max_tokens = max(max_tokens, 5000)
-        for _ in range(4):
+        for _ in range(MAX_REPAIR_ATTEMPTS):
+            repair_attempts += 1
             structure_repair = False
             if quality["lesson_count"] == 0:
                 revision_prompt = _build_completion_prompt(
@@ -360,6 +365,11 @@ def generate_teaching_plan(
 
     result["quality"] = quality
     result["revision_attempted"] = revision_attempted
+    result["repair_attempts"] = repair_attempts
+    result["generation_elapsed_seconds"] = round(
+        time.monotonic() - started_at,
+        2,
+    )
     if not quality["ok"]:
         result["quality_warning"] = (
             "模型返回的教案仍未达到完整性要求，已保留为草稿且未写入缓存。"

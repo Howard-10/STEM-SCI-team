@@ -395,3 +395,27 @@ def test_default_generation_budget_is_bounded_for_interactive_requests():
     signature = inspect.signature(plan_generator.generate_teaching_plan)
 
     assert signature.parameters["max_tokens"].default <= 2500
+
+
+def test_generation_stops_after_bounded_repair_attempts(monkeypatch):
+    short = "# 项目\n\n## 教学过程\n### 第1课时：导入\n活动：教师讲解，学生讨论。"
+    calls = []
+
+    monkeypatch.setattr(plan_generator, "retrieve_fewshot_examples", lambda *args: [])
+    monkeypatch.setattr(plan_generator, "retrieve_relevant_sections", lambda *args: [])
+
+    def fake_call(system, user, max_tokens):
+        calls.append(user)
+        return short, {}
+
+    monkeypatch.setattr(plan_generator, "_call_llm", fake_call)
+    monkeypatch.setattr(plan_generator, "MAX_REPAIR_ATTEMPTS", 2)
+    plan_generator._plan_cache.clear()
+
+    result = plan_generator.generate_teaching_plan("纸桥承重", grade_level="初中")
+
+    assert len(calls) == 3
+    assert result["repair_attempts"] == 2
+    assert result["quality"]["ok"] is False
+    assert result["quality_warning"]
+    assert result["generation_elapsed_seconds"] >= 0

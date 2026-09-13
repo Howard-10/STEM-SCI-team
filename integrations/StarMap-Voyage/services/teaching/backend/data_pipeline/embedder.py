@@ -28,6 +28,7 @@ else:
     API_KEY = os.environ.get("DASHSCOPE_API_KEY", "").strip()
 BATCH_SIZE = 4
 VECTOR_DIM = 1024
+EMBEDDING_TIMEOUT = float(os.environ.get("TEACHING_EMBEDDING_TIMEOUT", "15"))
 
 
 def embed_texts(texts: List[str], api_key: str = None) -> List[List[float]]:
@@ -47,7 +48,8 @@ def embed_texts(texts: List[str], api_key: str = None) -> List[List[float]]:
                 "input": batch,
                 "encoding_format": "float"
             },
-            headers={"Authorization": f"Bearer {key}"}
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=EMBEDDING_TIMEOUT,
         )
         if resp.status_code != 200:
             raise RuntimeError(f"Embedding API error: {resp.status_code} {resp.text}")
