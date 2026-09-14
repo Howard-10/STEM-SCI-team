@@ -48,6 +48,7 @@ import { demoBundle, demoCorpus, demoQAResponse, demoRuntime } from "./demo/data
 import { demoDocumentContents, demoDocumentsByProject, demoProjects } from "./demo/projectHub";
 import { ResearchProgressBoard } from "./components/ResearchProgressBoard";
 import { ResearchAnalysisWorkbench } from "./components/ResearchAnalysisWorkbench";
+import { RichMarkdown } from "./components/RichMarkdown";
 import { TechnicalTrace } from "./components/TechnicalTrace";
 import { TeachingWorkspaceFrame } from "./components/TeachingWorkspaceFrame";
 import { WorkspaceModeSelector } from "./components/WorkspaceModeSelector";
@@ -147,188 +148,6 @@ const demoProjectId = import.meta.env.VITE_PROJECT_ID && import.meta.env.VITE_PR
   ? import.meta.env.VITE_PROJECT_ID
   : "physics-ai-demo";
 const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
-const showcaseDemoAccountEmail = "2594606621@qq.com";
-const showcaseDemoProjectId = "project-7f9bd1491c364356";
-
-const showcaseFormalEvidence: FormalEvidenceRecord[] = [
-  {
-    project_id: showcaseDemoProjectId,
-    evidence_id: "evd_f34ae17bd0904da6bdc745067d9c28be",
-    artifact_id: "demo:formal-evidence:research-boundary",
-    plan_id: "demo:complete-workflow",
-    task_id: "demo:evidence-review",
-    agent_id: "evidence_audit",
-    conversation_id: null,
-    turn_id: null,
-    promoted_by: "demo-reviewer",
-    promoted_at: "2026-09-12T15:30:00Z",
-    evidence_ref: {
-      paper_title: "模型写作依据与图表参考终稿",
-      source_filename: "分层AI支架促进物理建模独立迁移_终稿参考.docx",
-      page: 1,
-      excerpt: "课程内即时表现不能替代撤除工具后的独立迁移证据；主要结局应在生成式 AI 完全关闭的延迟任务中测量。",
-      verification_status: "human_verified",
-      simulated_data: true,
-    },
-    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
-  },
-  {
-    project_id: showcaseDemoProjectId,
-    evidence_id: "evd_707349993ed442dc80ebf8fc7575f30d",
-    artifact_id: "demo:formal-evidence:scaffolding",
-    plan_id: "demo:complete-workflow",
-    task_id: "demo:evidence-review",
-    agent_id: "evidence_audit",
-    conversation_id: null,
-    turn_id: null,
-    promoted_by: "demo-reviewer",
-    promoted_at: "2026-09-12T15:31:00Z",
-    evidence_ref: {
-      paper_title: "模型写作依据与图表参考终稿",
-      source_filename: "分层AI支架促进物理建模独立迁移_终稿参考.docx",
-      page: 3,
-      excerpt: "分层支持需要与学习者状态匹配，并通过逐步撤除完成责任转移；更多帮助本身不等于更深层学习。",
-      verification_status: "human_verified",
-      simulated_data: true,
-    },
-    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
-  },
-  {
-    project_id: showcaseDemoProjectId,
-    evidence_id: "evd_54b43b6fe0f5421b8520b9839f10415e",
-    artifact_id: "demo:formal-evidence:primary-outcome",
-    plan_id: "demo:complete-workflow",
-    task_id: "demo:evidence-review",
-    agent_id: "evidence_audit",
-    conversation_id: null,
-    turn_id: null,
-    promoted_by: "demo-reviewer",
-    promoted_at: "2026-09-12T15:32:00Z",
-    evidence_ref: {
-      paper_title: "模型写作依据与图表参考终稿",
-      source_filename: "分层AI支架促进物理建模独立迁移_终稿参考.docx",
-      page: 4,
-      excerpt: "两周后的结构相关新任务在 AI 完全关闭条件下完成，并以盲法评分的延迟迁移得分作为主要结局。",
-      verification_status: "human_verified",
-      simulated_data: true,
-    },
-    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
-  },
-  {
-    project_id: showcaseDemoProjectId,
-    evidence_id: "evd_88ead6e079e443ee984ac149fce65fc2",
-    artifact_id: "demo:formal-evidence:method-risk",
-    plan_id: "demo:complete-workflow",
-    task_id: "demo:evidence-review",
-    agent_id: "evidence_audit",
-    conversation_id: null,
-    turn_id: null,
-    promoted_by: "demo-reviewer",
-    promoted_at: "2026-09-12T15:33:00Z",
-    evidence_ref: {
-      paper_title: "用户上传的新手论文对照稿",
-      source_filename: "生成式AI辅助Python物理建模教学_新手稿.docx",
-      page: 6,
-      excerpt: "初稿把团队内学生直接视为独立个体，且只使用 t 检验，未控制基线、聚类相关和多重比较风险。",
-      verification_status: "human_verified",
-      simulated_data: true,
-    },
-    provenance: [{ source: "uploaded_project_document", review: "manual_demo_review" }],
-  },
-];
-
-const showcaseProjectClaims: ProjectClaim[] = [
-  {
-    claim_id: "demo-claim-transfer-boundary",
-    project_id: showcaseDemoProjectId,
-    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
-    section: "introduction",
-    claim_text: "AI 可用阶段的任务增益不能直接解释为撤除工具后仍能保持的独立建模能力。",
-    claim_type: "theoretical_boundary",
-    support_type: "formal_evidence",
-    support_evidence_ids: ["evd_f34ae17bd0904da6bdc745067d9c28be", "evd_707349993ed442dc80ebf8fc7575f30d"],
-    support_result_ids: [],
-    support_artifact_ids: ["mentor_planning-329471637e414150992406afba62597b:artifact:1"],
-    confidence: 0.92,
-    verification_status: "VERIFIED",
-    reviewer_status: "APPROVED",
-  },
-  {
-    claim_id: "demo-claim-design",
-    project_id: showcaseDemoProjectId,
-    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
-    section: "methods",
-    claim_text: "研究采用团队级区组随机设计，并在分析中同时控制配对区组、基线能力和团队内相关。",
-    claim_type: "study_design",
-    support_type: "protocol_and_code",
-    support_evidence_ids: ["evd_88ead6e079e443ee984ac149fce65fc2"],
-    support_result_ids: [],
-    support_artifact_ids: ["research_design-cb29d7d0fe984a45a44339eebd4fdcdd:artifact:1", "demo:project-7f9bd1491c364356:analysis-code-plan"],
-    confidence: 0.95,
-    verification_status: "VERIFIED",
-    reviewer_status: "APPROVED",
-  },
-  {
-    claim_id: "demo-claim-primary-outcome",
-    project_id: showcaseDemoProjectId,
-    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
-    section: "methods",
-    claim_text: "主要结局是两周后、AI 完全关闭条件下的新任务独立迁移得分。",
-    claim_type: "outcome_definition",
-    support_type: "formal_evidence_and_protocol",
-    support_evidence_ids: ["evd_54b43b6fe0f5421b8520b9839f10415e"],
-    support_result_ids: [],
-    support_artifact_ids: ["research_design-cb29d7d0fe984a45a44339eebd4fdcdd:artifact:1"],
-    confidence: 0.98,
-    verification_status: "VERIFIED",
-    reviewer_status: "APPROVED",
-  },
-  {
-    claim_id: "demo-claim-primary-result",
-    project_id: showcaseDemoProjectId,
-    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
-    section: "results",
-    claim_text: "人工模拟数据中，分层 AI 支架组的调整后延迟迁移得分高 6.96 分，95% CI [3.60, 10.31]。",
-    claim_type: "numeric_result",
-    support_type: "validated_result_card",
-    support_evidence_ids: [],
-    support_result_ids: ["demo-result-card-layered-ai-transfer-v1"],
-    support_artifact_ids: ["demo:project-7f9bd1491c364356:statistical-result-card"],
-    confidence: 0.99,
-    verification_status: "VERIFIED",
-    reviewer_status: "APPROVED",
-  },
-  {
-    claim_id: "demo-claim-robustness",
-    project_id: showcaseDemoProjectId,
-    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
-    section: "results",
-    claim_text: "CR2、wild cluster bootstrap 与配对随机化检验在人工模拟数据中给出方向一致的稳健性结果。",
-    claim_type: "robustness_result",
-    support_type: "validated_result_card",
-    support_evidence_ids: [],
-    support_result_ids: ["demo-result-card-layered-ai-transfer-v1"],
-    support_artifact_ids: ["demo:project-7f9bd1491c364356:statistical-result-card", "demo:project-7f9bd1491c364356:physics-code-validation"],
-    confidence: 0.97,
-    verification_status: "VERIFIED",
-    reviewer_status: "APPROVED",
-  },
-  {
-    claim_id: "demo-claim-simulation-limit",
-    project_id: showcaseDemoProjectId,
-    manuscript_artifact_id: "paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2",
-    section: "ethics_limitations",
-    claim_text: "全部样本、效应量、显著性结果与图表均为人工生成模拟数据，只用于演示可复核工作流，不构成真实教学效果证据。",
-    claim_type: "simulation_disclosure",
-    support_type: "project_governance",
-    support_evidence_ids: ["evd_f34ae17bd0904da6bdc745067d9c28be"],
-    support_result_ids: ["demo-result-card-layered-ai-transfer-v1"],
-    support_artifact_ids: ["paper_writing-a1a77fe6c74646ce9be07d4cf3af0c2c:artifact:2"],
-    confidence: 1,
-    verification_status: "VERIFIED",
-    reviewer_status: "APPROVED",
-  },
-];
 const starMapWebUrl = import.meta.env.VITE_STARMAP_WEB_URL
   || (import.meta.env.DEV ? "http://127.0.0.1:5178" : "/teaching/");
 // Agent selection and planning are internal implementation details.  The
@@ -415,6 +234,10 @@ function manuscriptSectionEntries(body: Record<string, unknown> | null) {
     entries.push({ key: "full_text", label: manuscriptSectionLabels.full_text, text: fullText });
   }
   return entries;
+}
+
+function manuscriptSectionMarkdown(text: string) {
+  return text.replace(/^\s{0,3}#{1,6}\s+[^\n]+\n+/, "").trim();
 }
 
 function statisticalResultLabel(key: string): string {
@@ -849,6 +672,7 @@ export function App() {
   const [selectedDocument, setSelectedDocument] = useState<SelectedDocument | null>(null);
   const [documentTitleDraft, setDocumentTitleDraft] = useState("");
   const [documentContentDraft, setDocumentContentDraft] = useState("");
+  const [paperSourceEditing, setPaperSourceEditing] = useState(false);
   const [documentEditBusy, setDocumentEditBusy] = useState(false);
   const [documentEditError, setDocumentEditError] = useState("");
   const [manuscriptApplyError, setManuscriptApplyError] = useState("");
@@ -890,7 +714,7 @@ export function App() {
   const [agentPlans, setAgentPlans] = useState<AgentExecutionPlan[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutputSummary[]>([]);
   const [pageMaterials, setPageMaterials] = useState<AgentPageMaterial[]>([]);
-  const [apiFormalEvidence, setFormalEvidence] = useState<FormalEvidenceRecord[]>([]);
+  const [formalEvidence, setFormalEvidence] = useState<FormalEvidenceRecord[]>([]);
   const [agentPlanDraft, setAgentPlanDraft] = useState("");
   const [selectedAgentTaskIds, setSelectedAgentTaskIds] = useState<string[]>([]);
   const [agentPlanBusy, setAgentPlanBusy] = useState(false);
@@ -911,7 +735,7 @@ export function App() {
   const [orchestrationHistory, setOrchestrationHistory] = useState<ConversationalHistoryEntry[]>([]);
   const [evidenceReviewPackage, setEvidenceReviewPackage] = useState<EvidenceReviewPackage | null>(null);
   const [orchestrationArtifacts, setOrchestrationArtifacts] = useState<OrchestrationArtifactContent[]>([]);
-  const [apiProjectClaims, setProjectClaims] = useState<ProjectClaim[]>([]);
+  const [projectClaims, setProjectClaims] = useState<ProjectClaim[]>([]);
   const [reproducibilityReview, setReproducibilityReview] = useState<ReproducibilityReviewResult | null>(null);
   const [reproducibilityBusy, setReproducibilityBusy] = useState(false);
   const [reproducibilityError, setReproducibilityError] = useState("");
@@ -1193,31 +1017,7 @@ export function App() {
   const latestManuscriptArtifact = [...orchestrationArtifacts]
     .reverse()
     .find((item) => item.artifact_type === "ManuscriptDraftZh" || item.artifact_type === "ManuscriptOutline") ?? null;
-  const isShowcaseDemoProject = auth?.user.email === showcaseDemoAccountEmail
-    && projectId === showcaseDemoProjectId;
-  const formalEvidence = apiFormalEvidence.length
-    ? apiFormalEvidence
-    : isShowcaseDemoProject ? showcaseFormalEvidence : [];
-  const projectClaims = apiProjectClaims.length
-    ? apiProjectClaims
-    : isShowcaseDemoProject ? showcaseProjectClaims : [];
-  const latestStatisticalResultArtifact = latestArtifact("StatisticalResultCard");
-  const demoArtifactStatisticalResultCard: DataPipelineState["statistical_result_card"] = (() => {
-    if (!isShowcaseDemoProject || latestStatisticalResultArtifact?.body.simulated_data !== true) return null;
-    const valuesBody = asRecord(latestStatisticalResultArtifact.body.values);
-    const resultId = asText(latestStatisticalResultArtifact.body.result_id);
-    const executionStatus = asText(latestStatisticalResultArtifact.body.execution_status);
-    if (!valuesBody || !resultId || !executionStatus) return null;
-    const values = Object.fromEntries(
-      Object.entries(valuesBody).filter((entry): entry is [string, number] => typeof entry[1] === "number"),
-    );
-    if (!Object.keys(values).length) return null;
-    return { result_id: resultId, execution_status: executionStatus, values };
-  })();
-  const effectiveStatisticalResultCard = analysisState?.statistical_result_card
-    ?? demoArtifactStatisticalResultCard;
-  const usesShowcaseResultFallback = !analysisState?.statistical_result_card
-    && demoArtifactStatisticalResultCard !== null;
+  const effectiveStatisticalResultCard = analysisState?.statistical_result_card ?? null;
   const manuscriptFigureManifest: ManuscriptFigureEntry[] = (
     Array.isArray(latestManuscriptArtifact?.body.figure_manifest)
       ? latestManuscriptArtifact.body.figure_manifest
@@ -2564,6 +2364,15 @@ export function App() {
     return "";
   };
 
+  const latestCodeSpecification = [...codeWorkbenchArtifacts]
+    .reverse()
+    .find((artifact) => artifact.artifact_type === "CodeSpecificationDraft" && codeTextForArtifact(artifact));
+
+  useEffect(() => {
+    if (!latestCodeSpecification) return;
+    setPhysicsSource(codeTextForArtifact(latestCodeSpecification));
+  }, [latestCodeSpecification]);
+
   const readableArtifactFields = (artifact: OrchestrationArtifactContent) => {
     const entries = Object.entries(artifact.body)
       .filter(([key, value]) => key !== "source_code" && key !== "code" && key !== "python_code" && key !== "generated_code" && key !== "script")
@@ -3149,7 +2958,10 @@ export function App() {
         {latestManuscriptSectionEntries.map((section) => (
           <article key={section.key}>
             <span>{section.label}</span>
-            <p>{cleanResearchPresentation(section.text)}</p>
+            <RichMarkdown
+              className="rich-markdown-compact"
+              content={manuscriptSectionMarkdown(cleanResearchPresentation(section.text))}
+            />
           </article>
         ))}
       </div>
@@ -3161,6 +2973,10 @@ export function App() {
       ? selectedDocument
       : null;
     const sectionEntries = latestManuscriptSectionEntries;
+    const displayedPaperMarkdown = selectedManuscript
+      ? documentContentDraft || selectedManuscript.version?.content || ""
+      : sectionEntries.map((section) => section.text).join("\n\n");
+    const hasInlineFigures = /!\[[^\]]*\]\([^\s)]+(?:\s+"[^"]*")?\)/.test(displayedPaperMarkdown);
 
     return (
       <div className="paper-workbench-layout">
@@ -3183,9 +2999,14 @@ export function App() {
         <div className="paper-editor-panel">
           <div className="workbench-subheading">
             <span>论文正文</span>
-            <small>{selectedManuscript ? "可编辑草稿" : "候选内容预览"}</small>
+            {selectedManuscript ? (
+              <div className="paper-view-switch" role="group" aria-label="论文查看模式">
+                <button className={!paperSourceEditing ? "selected" : ""} type="button" onClick={() => setPaperSourceEditing(false)}>排版预览</button>
+                <button className={paperSourceEditing ? "selected" : ""} type="button" onClick={() => setPaperSourceEditing(true)}>编辑源文</button>
+              </div>
+            ) : <small>候选内容预览</small>}
           </div>
-          {selectedManuscript ? (
+          {selectedManuscript && paperSourceEditing ? (
             <div className="document-editor document-editor-inline">
               <label className="document-editor-label">
                 论文标题
@@ -3203,35 +3024,43 @@ export function App() {
                 placeholder="论文正文会显示在这里"
               />
               <div className="document-editor-actions">
-                <button className="secondary-inline-button" type="button" onClick={() => setSelectedDocument(null)}>关闭编辑</button>
+                <button className="secondary-inline-button" type="button" onClick={() => setPaperSourceEditing(false)}>返回排版预览</button>
                 <button className="primary-inline-button" type="button" disabled={documentEditBusy || !selectedManuscript.version || !documentTitleDraft.trim()} onClick={() => void saveSelectedDocument()}>
                   {documentEditBusy ? "保存中..." : "保存新版本"}
                 </button>
               </div>
               {documentEditError && <p className="document-editor-error">{documentEditError}</p>}
             </div>
+          ) : selectedManuscript ? (
+            <div className="paper-rendered-document">
+              <div className="paper-rendered-toolbar">
+                <span>当前文档 v{selectedManuscript.version?.version ?? selectedManuscript.document.current_version}</span>
+                <button className="plain-action" type="button" onClick={() => setSelectedDocument(null)}>关闭文档</button>
+              </div>
+              <RichMarkdown content={documentContentDraft || selectedManuscript.version?.content || "正文读取中..."} />
+            </div>
           ) : sectionEntries.length ? (
             <div className="paper-full-preview">
               {sectionEntries.map((section) => (
                 <article id={`paper-section-${section.key}`} key={section.key}>
                   <h4>{section.label}</h4>
-                  <p>{cleanResearchPresentation(section.text)}</p>
+                  <RichMarkdown content={manuscriptSectionMarkdown(cleanResearchPresentation(section.text))} />
                 </article>
               ))}
             </div>
           ) : (
             <div className="empty-output"><span className="empty-symbol">□</span><p>论文候选生成后，完整正文会显示在这里。</p></div>
           )}
-          {manuscriptFigureManifest.length > 0 && (
+          {manuscriptFigureManifest.length > 0 && !hasInlineFigures && (
             <section className="paper-figure-gallery" aria-label="论文图表">
               <div className="paper-figure-gallery-heading">
                 <div><strong>论文图表</strong><span>{manuscriptFigureManifest.length} 张</span></div>
-                <small>人工生成模拟数据，仅用于产品流程演示</small>
+                <small>图表来自当前候选论文，请在定稿前核验来源与说明。</small>
               </div>
               <div className="paper-figure-grid">
                 {manuscriptFigureManifest.map((figure) => (
                   <figure key={`${figure.figure_number}-${figure.url}`}>
-                    <img src={figure.url} alt={figure.alt_text} loading="eager" />
+                    <img src={figure.url} alt={figure.alt_text} loading="lazy" />
                     <figcaption>{figure.caption}</figcaption>
                   </figure>
                 ))}
@@ -4535,45 +4364,6 @@ export function App() {
         setReproducibilityError("未在当前论文正文中识别到与已验证结果卡对应的数字，请先保存正文后再审查。");
         return;
       }
-      if (usesShowcaseResultFallback) {
-        const missingResults = Object.entries(statisticalResult.values).filter(([, expected]) => (
-          !numbers.some((reported) => Math.abs(reported - expected) <= 1e-8)
-        ));
-        const findings = missingResults.map(([key], index) => ({
-          finding_id: `demo-reproducibility-${index + 1}`,
-          severity: "major",
-          category: "模拟结果一致性",
-          description: `论文正文未找到结果卡字段“${statisticalResultLabel(key)}”的对应数值。`,
-          suggested_action: "核对演示稿正文和统计结果卡后重新导入。",
-          evidence_refs: [latestStatisticalResultArtifact?.artifact_id ?? "demo-result-card"],
-        }));
-        setReproducibilityReview({
-          workflow_state: workflowSnapshot ?? {
-            project_id: projectId,
-            current_stage: "VERIFIED",
-            pending_approval_ref: null,
-            last_route_decision: null,
-            data_pipeline: null,
-            research_state: null,
-          },
-          outcome: {
-            findings,
-            revision_requests: findings.length ? [{
-              revision_id: "demo-reproducibility-revision",
-              required_changes: findings.map((finding) => finding.description),
-              blocking: true,
-            }] : [],
-            report: {
-              review_report_id: "demo-reproducibility-review",
-              overall_recommendation: findings.length ? "REVISE" : "PASS",
-              finding_refs: findings.map((finding) => finding.finding_id),
-              revision_request_refs: findings.length ? ["demo-reproducibility-revision"] : [],
-            },
-          },
-          approval_request: null,
-        });
-        return;
-      }
       const result = await workflowApi.runReproducibilityReview(projectId, {
         manuscriptRef: manuscript
           ? `document://${manuscript.document.document_id}/v${manuscript.version?.version ?? manuscript.document.current_version}`
@@ -4884,6 +4674,7 @@ export function App() {
 
   const openDocument = async (document: ApiProjectDocument) => {
     setSelectedDocument({ document, version: null });
+    setPaperSourceEditing(false);
     setDocumentTitleDraft(document.title);
     setDocumentContentDraft("");
     setDocumentEditError("");
@@ -5210,28 +5001,6 @@ export function App() {
     setScidavisBusy(true);
     setAnalysisError("");
     try {
-      if (usesShowcaseResultFallback) {
-        const filename = "layered-ai-transfer-demo-results.csv";
-        const rows = [
-          "metric,value",
-          ...Object.entries(effectiveStatisticalResultCard.values).map(([key, value]) => `${key},${value}`),
-        ];
-        const url = URL.createObjectURL(new Blob([`\uFEFF${rows.join("\n")}\n`], { type: "text/csv;charset=utf-8" }));
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        link.click();
-        URL.revokeObjectURL(url);
-        setScidavisExport({
-          project_id: projectId,
-          result_id: effectiveStatisticalResultCard.result_id,
-          filename,
-          file_path: `浏览器下载/${filename}`,
-          row_count: Object.keys(effectiveStatisticalResultCard.values).length,
-          format: "csv",
-        });
-        return;
-      }
       setScidavisExport(await workflowApi.exportResultForSciDAVis(projectId));
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "SciDAVis 导出失败");
@@ -6636,16 +6405,10 @@ export function App() {
                   <span>3</span><strong>结果验证</strong><small>{effectiveStatisticalResultCard ? "已有结果卡" : "等待受控执行"}</small>
                 </div>
               </div>
-              {!analysisState && !usesShowcaseResultFallback && (
+              {!analysisState && (
                 <div className="analysis-inline-note">
                   <strong>还没有分析管道</strong>
                   <span>请在对话框中说“开始数据分析”或“生成分析方案”，系统会自动准备下一步。</span>
-                </div>
-              )}
-              {!analysisState && usesShowcaseResultFallback && (
-                <div className="analysis-inline-note demo-analysis-note">
-                  <strong>演示流程结果已导入</strong>
-                  <span>该项目使用人工生成模拟数据展示完整分析链；真实账号仍需依次完成数据审查、冻结、执行和结果验证。</span>
                 </div>
               )}
             </section>
@@ -6760,23 +6523,6 @@ export function App() {
                   )}
                 </section>
               </>
-            )}
-            {!analysisState && effectiveStatisticalResultCard && (
-              <section className="output-section compact-section demo-result-section">
-                <div className="output-section-heading">
-                  <div><h3>模拟统计结果卡</h3><p className="section-subtitle">人工生成模拟数据，仅用于产品流程演示</p></div>
-                  <button className="secondary-inline-button" type="button" disabled={scidavisBusy} onClick={() => void exportResultForSciDAVis()}>
-                    {scidavisBusy ? "导出中..." : "导出到 SciDAVis"}
-                  </button>
-                </div>
-                <div className="analysis-result-grid">
-                  {Object.entries(effectiveStatisticalResultCard.values).map(([key, value]) => (
-                    <div key={key}><strong>{String(value)}</strong><small>{statisticalResultLabel(key)}</small></div>
-                  ))}
-                  <p className="analysis-result-note">结果状态：演示导入已核对。效应量和显著性结果不构成真实教学效果证据。</p>
-                  {scidavisExport && <p className="analysis-result-note">已生成 SciDAVis CSV：{scidavisExport.file_path}（{scidavisExport.row_count} 项）</p>}
-                </div>
-              </section>
             )}
             {renderPageMaterials("数据处理与分析计划", ["data_analysis", "codex"])}
             {analysisError && <p className="upload-error" role="alert">{analysisError}</p>}

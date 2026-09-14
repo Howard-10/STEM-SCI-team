@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {"dev": "vite", "build": "tsc -b && vite build", "typecheck": "tsc -b"},
-  "dependencies": {"@vitejs/plugin-react": "latest", "vite": "latest", "react": "latest", "react-dom": "latest"},
+  "dependencies": {"@vitejs/plugin-react": "latest", "vite": "latest", "react": "latest", "react-dom": "latest", "react-markdown": "^10.1.0", "remark-gfm": "^4.0.1"},
   "devDependencies": {"typescript": "latest", "@types/react": "latest", "@types/react-dom": "latest"}
 }

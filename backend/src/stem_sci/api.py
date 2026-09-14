@@ -5368,6 +5368,242 @@ def _dialogue_version_change(
     )
 
 
+_RESEARCH_OUTPUT_HEADINGS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("research_question", ("研究问题与研究目标", "研究问题与方案", "研究问题", "核心问题", "主要问题")),
+    ("research_objective", ("研究目标", "研究目的", "研究意义")),
+    ("hypotheses", ("研究假设", "假设")),
+    ("research_object", ("研究对象", "研究场景", "样本对象", "样本与分组")),
+    ("study_design", ("研究设计", "实验设计", "研究方案")),
+    ("methods", ("研究方法", "实验方法", "方法")),
+    ("measurement", ("变量与测量", "变量", "测量指标", "主要指标", "结果变量", "主要结果")),
+    ("data_collection", ("数据收集", "资料收集", "数据来源")),
+    ("analysis_plan", ("数据分析", "统计分析", "分析计划", "分析方法")),
+    ("ethics_limitations", ("伦理", "伦理与局限", "局限", "研究局限")),
+)
+
+
+def _direct_conversation_output_requests(message: str) -> set[str]:
+    """Identify bounded output requests that should stay in ordinary chat."""
+
+    normalized = message.strip().lower()
+    if not any(
+        marker in normalized
+        for marker in ("生成", "写", "输出", "提供", "保存", "整理", "generate", "write", "create")
+    ):
+        return set()
+    requested: set[str] = set()
+    if any(
+        marker in normalized
+        for marker in (
+            "python代码", "python 代码", "分析代码", "代码校验", "代码候选",
+            "生成代码", "写代码", "generate code", "python code",
+        )
+    ):
+        requested.add("code")
+    if any(
+        marker in normalized
+        for marker in (
+            "候选论文", "论文草稿", "论文初稿", "生成论文", "写论文",
+            "完整论文", "论文正文", "manuscript", "write the paper",
+        )
+    ):
+        requested.add("manuscript")
+    return requested
+
+
+def _research_output_sections(answer_text: str) -> dict[str, str]:
+    """Extract common research sections from a readable model answer."""
+
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for raw_line in answer_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current is not None:
+                sections.setdefault(current, []).append("")
+            continue
+        candidate = re.sub(r"^[#*\-\s\d一二三四五六七八九十百、.)]+", "", line).strip().strip("*_`")
+        matched: str | None = None
+        remainder = ""
+        for key, aliases in _RESEARCH_OUTPUT_HEADINGS:
+            for alias in aliases:
+                if candidate == alias:
+                    matched = key
+                    break
+                if candidate.startswith(alias) and candidate[len(alias):].lstrip().startswith((":", "：")):
+                    matched = key
+                    remainder = candidate[len(alias):].lstrip(" :：")
+                    break
+            if matched is not None:
+                break
+        if matched is not None:
+            current = matched
+            sections.setdefault(current, [])
+            if remainder:
+                sections[current].append(remainder)
+        elif current is not None:
+            sections.setdefault(current, []).append(line)
+    return {
+        key: "\n".join(value).strip()
+        for key, value in sections.items()
+        if "\n".join(value).strip()
+    }
+
+
+def _research_output_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    items = []
+    for line in value.splitlines():
+        cleaned = re.sub(
+            r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十百]+[、.)])\s*",
+            "",
+            line,
+        ).strip()
+        if cleaned:
+            items.append(cleaned)
+    return items
+
+
+def _structured_research_answer(question: str, answer_text: str, sections: dict[str, str]) -> bool:
+    if len(answer_text.strip()) < 180:
+        return False
+    question_lower = question.lower()
+    answer_lower = answer_text.lower()
+    question_signals = (
+        "研究问题", "研究方案", "研究设计", "研究方法", "研究假设",
+        "研究对象", "变量", "样本", "数据分析", "实验组", "对照组",
+        "research question", "study design", "research protocol",
+    )
+    answer_signals = (
+        "研究问题", "研究目标", "研究假设", "研究对象", "研究设计",
+        "研究方法", "变量", "样本", "数据收集", "数据分析", "伦理",
+        "局限", "hypothes", "method", "analysis", "sampling",
+    )
+    return (
+        sum(marker in question_lower for marker in question_signals) >= 1
+        and sum(marker in answer_lower for marker in answer_signals) >= 3
+        and (len(sections) >= 2 or sum(marker in answer_lower for marker in answer_signals) >= 5)
+    )
+
+
+def _persist_conversational_research_outputs(
+    *,
+    project_id: str,
+    request: ConversationCommandRequest,
+    answer: QAAnswerResponse,
+) -> bool:
+    """Project substantive normal-chat answers into reviewable workbench cards."""
+
+    answer_text = answer.answer.strip()
+    sections = _research_output_sections(answer_text)
+    output_kinds = _direct_conversation_output_requests(request.message)
+    specs: list[tuple[str, str, dict[str, object]]] = []
+    turn_key = answer.turn_id or request.client_turn_id or sha256_text(
+        f"{project_id}|{request.message}|{answer_text}"
+    )[:24]
+    safe_turn_key = re.sub(r"[^A-Za-z0-9_.:-]+", "-", turn_key)[:96]
+    provenance = {
+        "source": "conversation_llm_answer",
+        "conversation_id": answer.conversation_id,
+        "turn_id": answer.turn_id or request.client_turn_id,
+        "requires_confirmation": True,
+        "source_question": request.message[:4000],
+    }
+
+    if _structured_research_answer(request.message, answer_text, sections):
+        specs.extend([
+            ("research-question", "ResearchQuestionTree", {
+                "project_id": project_id,
+                "title": "对话生成的研究问题候选",
+                "primary_question": sections.get("research_question") or answer_text[:1200],
+                "research_questions": _research_output_list(sections.get("research_question")),
+                "research_objective": sections.get("research_objective", ""),
+                "hypotheses": _research_output_list(sections.get("hypotheses")),
+                "research_object": sections.get("research_object", ""),
+                "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+                "requires_confirmation": True,
+                "raw_answer": answer_text,
+                "provenance": provenance,
+            }),
+            ("study-protocol", "StudyProtocolCandidate", {
+                "project_id": project_id,
+                "title": "对话生成的研究方案候选",
+                "design_type": sections.get("study_design", "研究设计待从完整回答中确认"),
+                "primary_outcome": sections.get("measurement", "主要结果指标待确认"),
+                "sampling_approach": sections.get("research_object", "研究对象与样本边界待确认"),
+                "variables": _research_output_list(sections.get("measurement")),
+                "analysis_plan": sections.get("analysis_plan", "分析计划待确认"),
+                "hypotheses": _research_output_list(sections.get("hypotheses")),
+                "methods": sections.get("methods", ""),
+                "data_collection": sections.get("data_collection", ""),
+                "ethics_limitations": sections.get("ethics_limitations", ""),
+                "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+                "requires_confirmation": True,
+                "raw_answer": answer_text,
+                "provenance": provenance,
+            }),
+        ])
+
+    if "code" in output_kinds and any(
+        marker in answer_text for marker in ("```", "import ", "def ", "class ", "pandas", "numpy")
+    ):
+        fenced = re.search(r"```(?:python|py)?\s*(.*?)```", answer_text, re.IGNORECASE | re.DOTALL)
+        specs.append(("python-code", "CodeSpecificationDraft", {
+            "project_id": project_id,
+            "title": "对话生成的 Python 代码候选",
+            "language": "python",
+            "source_code": (fenced.group(1) if fenced else answer_text).strip(),
+            "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+            "requires_human_review": True,
+            "provenance": provenance,
+        }))
+
+    if "manuscript" in output_kinds and len(answer_text) >= 220:
+        research_question_lines = sections.get("research_question", "").splitlines()
+        title = (
+            research_question_lines[0][:160]
+            if research_question_lines
+            else ""
+        ) or "对话生成的候选论文"
+        specs.append(("manuscript", "ManuscriptDraftZh", {
+            "project_id": project_id,
+            "title": title,
+            "sections": {"title": title, "abstract": sections.get("research_objective", ""), "body": answer_text},
+            "full_text": answer_text,
+            "status": "CONVERSATIONAL_CANDIDATE_REQUIRES_CONFIRMATION",
+            "requires_human_review": True,
+            "provenance": provenance,
+        }))
+
+    saved_any = False
+    for suffix, artifact_type, body in specs:
+        artifact_id = f"conversation:{project_id}:{safe_turn_key}:{suffix}"
+        if artifact_content_store.get(project_id, artifact_id) is not None:
+            continue
+        saved = artifact_content_store.put(ArtifactContent(
+            project_id=project_id,
+            artifact_id=artifact_id,
+            version=1,
+            artifact_type=artifact_type,
+            schema_version="conversational-research-output-v1",
+            body=body,
+        ))
+        artifact_store.put(ArtifactRef(
+            artifact_id=artifact_id,
+            project_id=project_id,
+            artifact_type=artifact_type,
+            version=saved.version,
+            content_uri=f"artifact-content://{project_id}/{artifact_id}/{saved.version}",
+            sha256=saved.content_hash or sha256_text(saved.model_dump_json()),
+            created_at=saved.created_at,
+            created_by="conversation_llm",
+            status="CANDIDATE",
+        ))
+        saved_any = True
+    return saved_any
+
+
 def _discussion_response(
     *,
     project_id: str,
@@ -5527,6 +5763,79 @@ def _discussion_response(
         if external_request or planned_evidence_search or local_evidence_request
         else qa_service.converse(qa_request)
     )
+    direct_output_kinds = _direct_conversation_output_requests(request.message)
+    if "code" in direct_output_kinds and not any(
+        marker in answer.answer
+        for marker in ("```", "import ", "def ", "class ", "pandas", "numpy")
+    ):
+        fallback_code = """```python
+from pathlib import Path
+
+import pandas as pd
+import statsmodels.formula.api as smf
+
+
+CSV_PATH = Path("your_data.csv")
+GROUP_COLUMN = "group"       # 待按实际表头确认
+PRETEST_COLUMN = "pretest"   # 待按实际表头确认
+OUTCOME_COLUMN = "outcome"   # 待按实际表头确认
+
+
+def audit_and_fit(path: Path):
+    frame = pd.read_csv(path)
+    print("字段：", list(frame.columns))
+    print("缺失值：\n", frame.isna().sum())
+    required = [GROUP_COLUMN, PRETEST_COLUMN, OUTCOME_COLUMN]
+    missing = [name for name in required if name not in frame.columns]
+    if missing:
+        raise KeyError(f"请先确认字段名：{missing}")
+    clean = frame.dropna(subset=required).copy()
+    clean[GROUP_COLUMN] = clean[GROUP_COLUMN].astype("category")
+    summary = clean.groupby(GROUP_COLUMN, observed=True)[OUTCOME_COLUMN].agg(
+        ["count", "mean", "std"]
+    )
+    formula = f"{OUTCOME_COLUMN} ~ C({GROUP_COLUMN}) + {PRETEST_COLUMN}"
+    model = smf.ols(formula, data=clean).fit(cov_type="HC3")
+    return summary, model
+
+
+summary, model = audit_and_fit(CSV_PATH)
+print(summary)
+print(model.summary())
+```"""
+        answer = answer.model_copy(update={
+            "answer": (
+                "已生成一份可审阅的 Python 分析代码候选。当前 CSV 的分组、前测和结果字段尚未确认，"
+                "代码会先审查字段与缺失值，再生成描述统计和以前测为协变量的组间模型；"
+                "代码尚未执行，也不会把示例字段或结果当成真实数据。\n\n"
+                + fallback_code
+            ),
+            "route": QARouteDecision(
+                route="direct_answer",
+                reason="直接代码产出候选",
+                recommended_agent="analysis_code",
+            ),
+            "citations": [],
+            "answer_mode": "fallback",
+        })
+    elif "manuscript" in direct_output_kinds and len(answer.answer.strip()) < 220:
+        answer = answer.model_copy(update={
+            "answer": (
+                "已生成候选论文草稿框架，具体样本、效应量和结论仍需绑定项目证据后审阅。\n\n"
+                "## 题目\n待根据研究问题确认\n\n"
+                "## 摘要\n本研究拟围绕当前项目的研究问题，基于已上传资料和后续审计结果形成可复核的研究结论。"
+                "当前不填入未经核验的样本量、效应量或因果表述。\n\n"
+                "## 研究方法\n研究对象、变量定义、数据处理和统计方法待结合项目资料确认。\n\n"
+                "## 结果与讨论\n待完成数据审查、证据核验和人工确认后写入。"
+            ),
+            "route": QARouteDecision(
+                route="direct_answer",
+                reason="直接论文产出候选",
+                recommended_agent="paper_writing",
+            ),
+            "citations": [],
+            "answer_mode": "fallback",
+        })
     guarded_answer = _layered_ai_quality_guard(
         request.message,
         str(getattr(answer, "answer", "")),
@@ -5703,6 +6012,14 @@ def _discussion_response(
                 f"{revision.reason}{consequence}"
             )
         response_message += "\n\n新证据改变了当前研究判断：\n" + "\n".join(changes)
+    try:
+        _persist_conversational_research_outputs(
+            project_id=project_id,
+            request=request,
+            answer=answer,
+        )
+    except Exception:
+        logger.exception("Could not persist conversational research outputs for %s", project_id)
     layered_dialogue = (
         DialogueTurn(
             mode="research",
@@ -5872,6 +6189,32 @@ def _project_conversation_command_impl(
         and _layered_ai_topic_response(message, layered_project_context) is not None
     )
     current_state = control_plane.ensure_project(project_id)
+    direct_output_kinds = _direct_conversation_output_requests(message)
+    if (
+        direct_output_kinds
+        and current_state.route_decision is None
+        and current_state.active_gate_id is None
+        and _conversation_checkpoint(current_state.model_dump(mode="json")) is None
+    ):
+        direct_instruction = (
+            "请直接完成用户要求，同时输出可审阅的 Python 代码候选和候选论文正文，并明确标出待核验内容。"
+            if direct_output_kinds == {"code", "manuscript"}
+            else
+            "请直接完成用户要求并输出可审阅的 Python 代码候选，不要只提问或返回字段说明。"
+            if "code" in direct_output_kinds
+            else "请直接生成候选论文正文，并明确标出待核验内容，不要只给写作建议。"
+        )
+        return _discussion_response(
+            project_id=project_id,
+            request=request,
+            state=current_state,
+            project_context=(
+                f"{layered_project_context}\n"
+                f"本轮输出要求：{direct_instruction}\n"
+                "生成的候选必须保留在产出工作区，等待人工审阅；不要把候选冒充正式结果。"
+            ),
+            collaboration=None,
+        )
     # Projects created before the conversational flow was introduced may
     # still have a pending Gate for an internal operator (for example
     # ``research_design_approval``).  Migrate that durable state once while
@@ -7471,6 +7814,16 @@ def project_conversation_command(
         journal.update(project_id, turn["turn_id"], status="processing")
         response = _project_conversation_command_impl(project_id, request, user)
         if isinstance(response, dict):
+            answer_payload = response.get("answer")
+            if isinstance(answer_payload, dict):
+                try:
+                    _persist_conversational_research_outputs(
+                        project_id=project_id,
+                        request=request,
+                        answer=QAAnswerResponse.model_validate(answer_payload),
+                    )
+                except Exception:
+                    logger.exception("Could not bridge conversational answer for %s", project_id)
             journal.update(project_id, turn["turn_id"], status="completed", response=response)
         else:
             journal.update(project_id, turn["turn_id"], status="failed")

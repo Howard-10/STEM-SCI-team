@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from stem_sci import api
 from stem_sci.accounts import IdentityService
+from stem_sci.artifacts.artifact_store import SQLiteArtifactStore
 from stem_sci.artifacts.content_store import SQLiteArtifactContentStore
 from stem_sci.collaboration import (
     EvidenceObservation,
@@ -42,6 +43,116 @@ def _turn(
         requested_mode=requested_mode,
         source_turn_id="turn-1",
     )
+
+
+def test_normal_chat_code_answer_is_saved_as_a_reviewable_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "conversation-outputs.db"
+    monkeypatch.setattr(api, "artifact_content_store", SQLiteArtifactContentStore(database))
+    monkeypatch.setattr(api, "artifact_store", SQLiteArtifactStore(database))
+    request = api.ConversationCommandRequest(
+        project_id="ordinary-project",
+        message="请生成 Python 分析代码候选并接入产出区。",
+        client_turn_id="ordinary-code-turn",
+    )
+    answer = QAAnswerResponse(
+        project_id="ordinary-project",
+        conversation_id="ordinary-conversation",
+        question=request.message,
+        rewritten_query=request.message,
+        route=QARouteDecision(route="direct_answer", reason="测试直接代码产出"),
+        answer="""已生成候选代码，尚未执行。\n\n```python\nimport pandas as pd\nframe = pd.read_csv("your_data.csv")\nprint(frame.isna().sum())\n```""",
+        citations=[],
+        retrieval_status="READY",
+    )
+
+    assert api._persist_conversational_research_outputs(
+        project_id="ordinary-project",
+        request=request,
+        answer=answer,
+    )
+    contents = api.artifact_content_store.list_project("ordinary-project")
+    assert [item.artifact_type for item in contents] == ["CodeSpecificationDraft"]
+    assert "pd.read_csv" in str(contents[0].body["source_code"])
+    assert contents[0].body["requires_human_review"] is True
+
+
+def test_normal_chat_manuscript_without_research_question_heading_is_saved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "conversation-manuscript.db"
+    monkeypatch.setattr(api, "artifact_content_store", SQLiteArtifactContentStore(database))
+    monkeypatch.setattr(api, "artifact_store", SQLiteArtifactStore(database))
+    request = api.ConversationCommandRequest(
+        project_id="ordinary-manuscript-project",
+        message="请生成中文论文初稿候选并接入产出区，暂不投稿。",
+        client_turn_id="ordinary-manuscript-turn",
+    )
+    answer = QAAnswerResponse(
+        project_id=request.project_id,
+        conversation_id="ordinary-manuscript-conversation",
+        question=request.message,
+        rewritten_query=request.message,
+        route=QARouteDecision(route="direct_answer", reason="测试论文产出"),
+        answer=(
+            "以下是一篇论文初稿候选正文。\n\n"
+            "本文围绕当前研究主题形成方法、结果和讨论草稿，所有结论均需人工核验。\n" * 20
+        ),
+        citations=[],
+        retrieval_status="READY",
+    )
+
+    assert api._persist_conversational_research_outputs(
+        project_id=request.project_id,
+        request=request,
+        answer=answer,
+    )
+    contents = api.artifact_content_store.list_project(request.project_id)
+    assert [item.artifact_type for item in contents] == ["ManuscriptDraftZh"]
+    assert contents[0].body["title"] == "对话生成的候选论文"
+    assert contents[0].body["requires_human_review"] is True
+
+
+def test_one_chat_answer_can_create_code_and_manuscript_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "conversation-multiple-outputs.db"
+    monkeypatch.setattr(api, "artifact_content_store", SQLiteArtifactContentStore(database))
+    monkeypatch.setattr(api, "artifact_store", SQLiteArtifactStore(database))
+    request = api.ConversationCommandRequest(
+        project_id="ordinary-multiple-output-project",
+        message="请生成 Python 分析代码和完整论文正文，并一起接入产出工作区。",
+        client_turn_id="ordinary-multiple-output-turn",
+    )
+    answer = QAAnswerResponse(
+        project_id=request.project_id,
+        conversation_id="ordinary-multiple-output-conversation",
+        question=request.message,
+        rewritten_query=request.message,
+        route=QARouteDecision(route="direct_answer", reason="测试组合产出"),
+        answer=(
+            "## 论文正文\n本文包含待核验的方法、结果和讨论。\n"
+            "```python\nimport pandas as pd\nframe = pd.read_csv('your_data.csv')\n```\n"
+            + "所有研究结论都需要绑定证据和运行结果后再确认。\n" * 12
+        ),
+        citations=[],
+        retrieval_status="READY",
+    )
+
+    assert api._persist_conversational_research_outputs(
+        project_id=request.project_id,
+        request=request,
+        answer=answer,
+    )
+    artifact_types = {
+        item.artifact_type
+        for item in api.artifact_content_store.list_project(request.project_id)
+    }
+    assert artifact_types == {"CodeSpecificationDraft", "ManuscriptDraftZh"}
 
 
 def test_only_a_direction_changing_ambiguity_is_asked(tmp_path: Path) -> None:
